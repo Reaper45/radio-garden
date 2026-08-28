@@ -1,0 +1,28 @@
+{
+  "name": "radio-garden",
+  "module": "src/cli.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^26.4.0"
+  },
+  "peerDependencies": {
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.5.9"
+  },
+  "bin": {
+    "radio-garden": "src/cli.ts"
+  },
+  "scripts": {
+    "start": "bun src/cli.ts",
+    "daemon": "bun src/cli.ts daemon",
+    "kill": "bun src/cli.ts kill",
+    "typecheck": "tsc --noEmit",
+    "probe:fft": "bun probe/fft-probe.ts",
+    "probe:api": "bun probe/api-probe.ts",
+    "probe:daemon": "bun probe/daemon-probe.ts"
+  }
+}
