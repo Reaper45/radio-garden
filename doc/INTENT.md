@@ -14,8 +14,8 @@
 ## 1. What this is
 
 A terminal radio player. You pick a station from [Radio Garden](https://radio.garden/),
-it streams, and the terminal shows a real-time ASCII spectrum of the audio while it
-plays. It keeps the machine awake so playback survives a closed lid.
+it streams, and the terminal shows a real-time spectrogram of the audio, drawn as
+a GitHub contribution graph, while it plays. It keeps the machine awake so playback survives a closed lid.
 
 It is a fun project. The design below optimises for *feeling good to use*, not for
 robustness at scale.
@@ -43,14 +43,14 @@ ICY metadata. `ffmpeg` appears only as an optional transcoding shim for AAC.
                          │
                     enableTap()
                          ▼
-              readTapFrames() -> FFT -> bars
+              readTapFrames() -> FFT -> band levels
 ```
 
 ## 3. Decisions
 
 | # | Decision | Rationale |
 |---|---|---|
-| D1 | **Real FFT spectrum**, not decoration | The bars should mean something. |
+| D1 | **Real FFT spectrum**, not decoration | The squares should mean something. |
 | D2 | **ffmpeg is an *optional* dependency** | Needed only for the 39% of stations that serve AAC. MP3 works with zero external deps. Degrade with a clear message if absent. |
 | D3 | **OpenTUI's native audio engine drives playback** | `playStreamUrl()` gives decode, buffering, reconnect and ICY metadata for free. Supersedes the ffmpeg dual-output design (§9). |
 | D4 | **Single-letter keybindings** | `⌘` cannot reach a TUI in Apple Terminal (§6). |
@@ -59,11 +59,13 @@ ICY metadata. `ffmpeg` appears only as an optional transcoding shim for AAC.
 | D7 | **`n` walks stations in the current place** | The place is the unit of browsing, not a global shuffle. |
 | D8 | **Daemon owns lifecycle; clients attach and detach** | A persistent process is the feature, not a leak. |
 | D10 | **Background daemon + thin TUI client** | Playback outlives the terminal. Close the window, close the lid, music continues. |
-| D11 | **The daemon computes the FFT; clients receive bar magnitudes** | PCM over the socket would cost ~44 KB/s per client; bars cost ~48 bytes/frame. |
+| D11 | **The daemon computes the FFT; clients receive band levels** | PCM over the socket would cost ~44 KB/s per client; seven levels cost ~40 bytes/frame. |
 | D12 | **No mute** | Dropped. `space` stops. |
 | D13 | **Hybrid codec routing** | MP3 native, AAC via ffmpeg shim. The tap makes both paths identical downstream — the visualizer never knows which fed it. |
 | D14 | **Show ICY now-playing metadata** | The stream provides what the API does not (§4). Free on the MP3 path. |
 | D15 | **All socket writes go through `FrameWriter`** | Bun's `socket.write()` returns short counts on large messages. Found in implementation — see §5. |
+| D16 | **The visualiser is a scrolling contribution grid, not bars** | Bars show one instant; the grid shows the last ten seconds, so you can see a track's structure go past. Seven log rows × five levels is GitHub's shape, and it is a spectrogram either way. Supersedes the adaptive bar count of D9. |
+| D17 | **The daemon sends instants; the client owns the scroll history** | Column width is a function of terminal width, which only the client knows, and a second client attaching should not inherit the first one's scrollback. The daemon stays stateless past the current frame. |
 
 ### Keybindings (D4)
 
@@ -84,12 +86,45 @@ The engine runs at **48 kHz**, not the 22.05 kHz of the superseded design.
   smears the bass register into two or three bins.
 - **Rate:** poll at 30 Hz, matching the render loop. The tap is a ring buffer, so
   the poll rate and the audio rate need not relate.
-- **Buckets:** log-spaced, 40 Hz to 16 kHz. Linear bucketing crushes all musical
-  content into the leftmost columns.
-- **Bar count:** adaptive to terminal width, 24–64 bars.
+- **Bands:** seven, log-spaced 40 Hz to 16 kHz — one grid row each (D16). Fixed,
+  not adaptive: seven rows is what makes the thing read as a contribution graph.
+  Edges are rounded to whole bins and made exclusive; `floor`/`ceil` would overlap
+  neighbours by a bin, which at this resolution puts one bass tone in two rows.
 - **Dynamics:** asymmetric smoothing — attack α ≈ 0.6 (near-instant), release
   α ≈ 0.15 per frame. Fast decay reads twitchy, slow reads like sludge.
-- **Normalisation:** rolling-max AGC over ~3 s so quiet stations still fill the display.
+- **Normalisation:** one rolling-max AGC over ~3 s, shared by all bands, so quiet
+  stations still fill the grid and a loud band still reads as louder than a quiet
+  one.
+- **Spectral tilt:** band magnitudes are weighted by `(centre Hz)^0.3`, about 4.7×
+  across the range. Music falls off roughly 4.5 dB/octave, so against a shared peak
+  the two treble rows would sit empty for the life of the session. Partial
+  compensation, not full: flattening it entirely makes every station look like
+  white noise.
+- **Levels:** five, GitHub's scale, at norm ≥ 0.08 / 0.3 / 0.55 / 0.8. Below an
+  absolute floor (~-100 dBFS on the pre-tilt magnitudes) the grid is empty, so
+  dither and denormals cannot be normalised up into a full green wall.
+
+**Why not normalise each band against its own recent average?** It was tried. It
+gives beautiful scatter, but a band with nothing in it but window leakage gets
+amplified to level 4, so a 100 Hz test tone lights all seven rows — the display
+stops being a measurement. Per-band scoring was dropped for the shared peak plus
+tilt above; `probe/fft-probe.ts` holds both halves of that trade as assertions:
+tones must stay in their own band, *and* ten seconds of synthetic programme
+material must scatter across all five levels with no flat row.
+
+### Grid parameters (D16, D17)
+
+- **Cell:** two block glyphs plus a one-column gutter. A terminal cell is about
+  twice as tall as it is wide, so two of them read as one GitHub square.
+- **Column:** 200 ms. Frames arrive at 30 Hz, so roughly six fold into each
+  column — by max, not mean, because a snare that lands inside a column should
+  light it and averaging is exactly what erases it.
+- **Width:** adaptive, 8 to 53 columns (a year of contributions is 53 weeks), so
+  the window covers 1.6 to 10.6 s depending on the terminal.
+- **Palette:** GitHub's four greens, with the empty cell darkened to this app's
+  background rather than `#0d1117`.
+- **Idle:** stopping a station empties the grid rather than freezing it. A stopped
+  player should look like a quiet year, not a paused one.
 
 ## 3a. Daemon architecture (D10)
 
@@ -105,12 +140,12 @@ The engine runs at **48 kHz**, not the 22.05 kHz of the superseded design.
               └────────┬─────────┘
                        │
               audio engine ──> speakers
-                       └─ tap ──> FFT ──> bar frames ──> clients
+                       └─ tap ──> FFT ──> level frames ──> clients
 ```
 
 **Client → daemon:** `play {channelId}`, `stop`, `next`, `status`, `subscribe`.
 **Daemon → client:** `state {station, place, playing, power, nowPlaying}`,
-`bars {[u8]}`, `error {…}`.
+`spectrum {bands: [u8; 7]}`, `error {…}`.
 
 The daemon auto-spawns on first client connect if no live socket is found.
 `radio-garden kill` shuts it down explicitly.
@@ -185,9 +220,9 @@ Under the superseded ffmpeg design this was load-bearing and fragile: stdout was
 pipe, and failing to drain it would block ffmpeg's writes and stutter playback.
 Under D3 it is nearly free — `readTapFrames()` reads a native ring buffer that the
 mixer fills regardless of whether anyone is listening. A wedged renderer costs you
-stale bars, never audio.
+stale spectrum frames, never audio.
 
-What remains: bar frames pushed to clients must use non-blocking writes and drop
+What remains: spectrum frames pushed to clients must use non-blocking writes and drop
 on congestion, so a slow socket cannot back up into the daemon's event loop.
 
 ### The direction this analysis missed (found in implementation)
@@ -203,7 +238,7 @@ error, no crash, no log.
 
 `FrameWriter` (D15) now owns every write in both directions. It retains the
 unwritten remainder and flushes it on the socket's `drain` event. Control
-messages queue reliably; bar frames use `sendDroppable`, which skips a frame
+messages queue reliably; spectrum frames use `sendDroppable`, which skips a frame
 entirely when anything is still pending — so congestion costs visualiser frames
 and never commands.
 
@@ -279,7 +314,7 @@ Everything below was executed, not assumed.
 | AAC is rejected | `audio/aac` and `audio/aacp` both fail the content-type gate |
 | `audiotoolbox` exists | Present as an output device in stock Homebrew ffmpeg 9.0.1 |
 | **D15 partial-write bug** | `playStation` with 67 siblings: `socket.write()` returned 8174 of 8316 bytes; frame lost silently until `FrameWriter` |
-| **UI renders correctly** | Headless `createTestRenderer` frame assertions: stopped/playing/buffering states, 72-cell spectrum, preroll `· ad` marker, power badge |
+| **UI renders correctly** | Headless `createTestRenderer` frame assertions: stopped/playing/buffering states, a 7-row contribution grid painted in all five GitHub greens, preroll `· ad` marker, power badge |
 | **Daemon outlives client** | After `q`, `status` still reported `playing`; playback continued until `radio-garden kill` |
 | **D13 AAC shim works** | WFDD3 (`audio/aac`) → `ffmpeg -f mp3 pipe:1` → `playStream({format:"mp3"})` → `state=playing`, audible in 9/12 polls |
 

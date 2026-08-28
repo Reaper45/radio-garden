@@ -1,26 +1,40 @@
 # radio-garden
 
 A terminal client for [radio.garden](https://radio.garden/): browse stations by
-place, play one, and watch a live ASCII spectrum of the audio. Playback runs in a
-background daemon, so it survives closing the terminal — and a closed lid, when
-you're on mains power.
+place, play one, and watch the audio scroll past as a GitHub contribution graph.
+Playback runs in a background daemon, so it survives closing the terminal — and a
+closed lid, when you're on mains power.
 
 ```
- radio.garden                                                 ⚡︎ lid-safe
-┌────────────────────────────────────────────────────────────────────────┐
-│ KUTX FM 98.9                                                           │
-│ Austin TX, United States                                               │
-│ ♪ Khruangbin — August 10                                               │
-│   ▁▂▂▃▄▄▅▆▇▇█  ▁▂▃▃▄▅▅▆▇▇█ ▁▁▂▃▃▄▅▆▆▇██ ▁▁▂▃▄▄▅▆▆▇█  ▁▂▂▃▄▄▅▆▇▇█  ▁▂   │
-└────────────────────────────────────────────────────────────────────────┘
-┌─ Austin TX, United States ─────────────────────────────────────────────┐
-│  ▶ KUTX FM 98.9                                                        │
-│    Austin TX, United States                                            │
-│    Boss Country Radio                                                  │
-│    Austin TX, United States  · ad                                      │
-└────────────────────────────────────────────────────────────────────────┘
+ radio.garden                                                                     ⚡︎ lid-safe
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│ KUTX FM 98.9                                                                             │
+│ Austin TX, United States                                                                 │
+│ ♪ Khruangbin — August 10                                                                 │
+│                        -4s                       -2s                       now           │
+│ 10k ░░ ▒▒ ▓▓ ▓▓ ░░ ░░ ░░ ▓▓ ▒▒ ░░ ░░ ▒▒ ▒▒ ░░ ░░ ▒▒ ▒▒ ░░ ░░ ▓▓ ▒▒ ░░ ▓▓ ▓▓ ░░ ██ ▓▓ ▒▒  │
+│     ░░ ░░ ░░ ▒▒ ░░ ░░ ▒▒ ▓▓ ▒▒ ██ ██ ▒▒ ░░ ██ ▓▓ ▒▒ ▒▒ ▒▒ ██ ██ ▒▒ ▒▒ ▒▒ ▓▓ ██ ▓▓ ▒▒ ▒▒  │
+│     ██ ▒▒ ░░ ▒▒ ░░ ░░ ██ ██ ▓▓ ░░ ▒▒ ▓▓ ██ ▒▒ ░░ ·· ░░ ▒▒ ▓▓ ▒▒ ░░ ·· ░░ ▒▒ ▒▒ ░░ ·· ░░  │
+│ 800 ██ ▓▓ ▓▓ ██ ██ ██ ██ ▓▓ ▒▒ ▓▓ ██ ██ ██ ██ ▓▓ ▓▓ ░░ ▒▒ ▓▓ ▓▓ ▒▒ ██ ██ ▓▓ ▒▒ ▒▒ ░░ ▒▒  │
+│     ▓▓ ▒▒ ▒▒ ▓▓ ▓▓ ▓▓ ▓▓ ██ ▓▓ ██ ▓▓ ▓▓ ▓▓ ▓▓ ▒▒ ▓▓ ▒▒ ▓▓ ▓▓ ▒▒ ▒▒ ▓▓ ▓▓ ▓▓ ▒▒ ▒▒ ▓▓ ▓▓  │
+│     ▓▓ ▓▓ ▓▓ ██ ▓▓ ██ ▓▓ ▓▓ ▒▒ ▒▒ ▓▓ ▓▓ ▓▓ ██ ▓▓ ▒▒ ▒▒ ▒▒ ▓▓ ▓▓ ▓▓ ██ ▓▓ ▒▒ ▒▒ ▒▒ ▒▒ ▓▓  │
+│  61 ▒▒ ░░ ░░ ▓▓ ▒▒ ░░ ░░ ▓▓ ▒▒ ░░ ·· ▒▒ ░░ ▓▓ ▒▒ ░░ ·· ▒▒ ▒▒ ░░ ·· ▒▒ ▒▒ ░░ ░░ ▒▒ ░░ ··  │
+│ 143 blocks in the last 5 seconds                        Less ·· ░░ ▒▒ ▓▓ ██ More         │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+┌─ Austin TX, United States ───────────────────────────────────────────────────────────────┐
+│  ▶ KUTX FM 98.9                                                                          │
+│    Austin TX, United States                                                              │
+│    Boss Country Radio                                                                    │
+│    Austin TX, United States  · ad                                                        │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
 ↑↓ move   ⏎ play   space stop   n next   / search   q quit
 ```
+
+Seven log-spaced frequency rows, 40 Hz to 16 kHz, one column per 200 ms scrolling
+right to left — a spectrogram in GitHub's five shades of green, shown above as
+shading because this page has no colour. The squares are real FFT output, not
+decoration: a bass-heavy track fills the bottom rows, a cymbal lights the top
+one, and silence empties the grid.
 
 ## Requirements
 
@@ -71,14 +85,14 @@ Radio Garden API ──resolve 302──> upstream URL ──> codec?
                                        └───────────┬───────────┘
                                         OpenTUI audio engine → speakers
                                                    │
-                                              output tap → FFT → bars → clients
+                                          output tap → FFT → levels → clients
 ```
 
 Playback, buffering, reconnect and ICY metadata come from
 [OpenTUI](https://github.com/anomalyco/opentui)'s native audio engine, which
 accepts MP3 and FLAC only — hence the ffmpeg transcode for AAC. Both paths
-converge on the same output tap, which is what the spectrum reads, so the bars
-track the audio you hear rather than a decode running ahead of it.
+converge on the same output tap, which is what the spectrum reads, so the grid
+tracks the audio you hear rather than a decode running ahead of it.
 
 Design rationale, the API's undocumented behaviour, and the measurements behind
 these choices are in [`doc/INTENT.md`](doc/INTENT.md).
@@ -92,10 +106,11 @@ src/
   daemon/
     main.ts            socket server, lifecycle, auto-skip
     player.ts          playback, codec routing, watchdogs
-    spectrum.ts        FFT and bar magnitudes
+    spectrum.ts        FFT and per-band contribution levels
     power.ts           pmset polling and the caffeinate assertion
   client/
     tui.ts             wiring: connection, keys, bootstrap
+    graph.ts           scrolling column history behind the contribution grid
     view.ts            pure rendering
 probe/                 runnable checks against the live API and real audio
 ```
@@ -103,10 +118,10 @@ probe/                 runnable checks against the live API and real audio
 ## Probes
 
 ```bash
-bun probe/fft-probe.ts       # tones land in the right log buckets
+bun probe/fft-probe.ts       # tones land in the right bands; music scatters across levels
 bun probe/view-probe.ts      # headless render assertions
 bun probe/api-probe.ts       # live API: search, places, codec routing
-bun probe/daemon-probe.ts    # daemon end to end, bars flowing
+bun probe/daemon-probe.ts    # daemon end to end, spectrum frames flowing
 bun probe/audio-probe.ts     # OpenTUI native playback + ICY metadata
 bun probe/aac-shim-probe.ts  # ffmpeg AAC path
 ```
