@@ -1,8 +1,9 @@
 # radio-garden
 
-Terminal radio from [radio.garden](https://radio.garden/), with a real-time ASCII
-spectrum of whatever is playing. Playback runs in a background daemon, so it
-survives closing the terminal — and a closed lid, when you're on mains power.
+A terminal client for [radio.garden](https://radio.garden/): browse stations by
+place, play one, and watch a live ASCII spectrum of the audio. Playback runs in a
+background daemon, so it survives closing the terminal — and a closed lid, when
+you're on mains power.
 
 ```
  radio.garden                                                 ⚡︎ lid-safe
@@ -24,10 +25,9 @@ survives closing the terminal — and a closed lid, when you're on mains power.
 ## Requirements
 
 - **Bun** (tested on 1.3.9)
-- **macOS** — the power handling and audio output are macOS-specific
-- **ffmpeg** *(optional)* — needed only for AAC stations, which are ~39% of the
-  catalogue. Without it, MP3 stations play fine and AAC ones report a clear error.
-  `brew install ffmpeg`
+- **macOS** — power handling and audio output are macOS-specific
+- **ffmpeg** *(optional)* — only for AAC stations, ~39% of the catalogue. Without
+  it, MP3 stations play and AAC ones report a clear error. `brew install ffmpeg`
 
 ## Run
 
@@ -48,26 +48,17 @@ bun run kill        # stop background playback
 | `/` | search stations and places |
 | `q` | quit the client — **playback keeps going** |
 
-There is no `⌘`-key binding, and it isn't an oversight: terminals do not encode
-the Command modifier into stdin, so a TUI cannot receive `⌘C` or `⌘B` at all.
+`q` leaves the daemon running by design; `bun run kill` stops the music. The
+daemon also exits on its own after five idle minutes.
 
-Quitting with `q` leaves the daemon running by design. Use `bun run kill` (or
-`radio-garden kill`) to actually stop the music. The daemon also exits on its own
-after five idle minutes.
+## The lid badge
 
-## About the lid
-
-The `⚡︎ lid-safe` / `🔋 will sleep` badge is telling you the truth about what
-happens if you shut the laptop:
-
-- **On mains power**, a `caffeinate -s` assertion is held while playing and audio
-  survives a closed lid.
-- **On battery**, it does not. `man caffeinate` is explicit that `-s` is "valid
-  only when system is running on AC power" — lid-close sleep is handled below
-  userspace and no application can override it.
-
-The assertion is held only while something is playing, so an idle daemon never
-keeps your machine awake.
+`⚡︎ lid-safe` / `🔋 will sleep` reports what actually happens if you shut the lid.
+On mains power a `caffeinate -s` assertion is held while playing and audio
+survives lid-close. On battery it does not — `-s` is "valid only when system is
+running on AC power" (`man caffeinate`), and lid-close sleep is handled below
+userspace. The assertion is held only while something plays, so an idle daemon
+never keeps the machine awake.
 
 ## How it works
 
@@ -84,13 +75,13 @@ Radio Garden API ──resolve 302──> upstream URL ──> codec?
 ```
 
 Playback, buffering, reconnect and ICY metadata come from
-[OpenTUI](https://github.com/anomalyco/opentui)'s native audio engine. Its engine
-accepts MP3 and FLAC only, so AAC stations are transcoded by ffmpeg first. Both
-paths converge on the same output tap, which is what the spectrum reads — so the
-bars track the audio you actually hear, not a decode running ahead of it.
+[OpenTUI](https://github.com/anomalyco/opentui)'s native audio engine, which
+accepts MP3 and FLAC only — hence the ffmpeg transcode for AAC. Both paths
+converge on the same output tap, which is what the spectrum reads, so the bars
+track the audio you hear rather than a decode running ahead of it.
 
-The design rationale, the API's undocumented behaviour, and the measurements
-behind these choices are in [`doc/INTENT.md`](doc/INTENT.md).
+Design rationale, the API's undocumented behaviour, and the measurements behind
+these choices are in [`doc/INTENT.md`](doc/INTENT.md).
 
 ## Layout
 
@@ -106,13 +97,10 @@ src/
   client/
     tui.ts             wiring: connection, keys, bootstrap
     view.ts            pure rendering
-probe/                 runnable checks (see below)
+probe/                 runnable checks against the live API and real audio
 ```
 
 ## Probes
-
-These are how the design claims were verified; they hit the live API and real
-audio rather than mocks.
 
 ```bash
 bun probe/fft-probe.ts       # tones land in the right log buckets
