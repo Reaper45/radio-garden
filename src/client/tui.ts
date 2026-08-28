@@ -20,8 +20,8 @@ export async function run(): Promise<void> {
           bootstrapped = true
           view.showStations(msg.state.siblings, msg.state.station?.placeTitle ?? "stations")
         }
-      } else if (msg.t === "bars") {
-        view.setBars(msg.bars)
+      } else if (msg.t === "spectrum") {
+        view.pushSpectrum(msg.bands)
       } else if (msg.t === "error") {
         view.setStatus(msg.message)
       }

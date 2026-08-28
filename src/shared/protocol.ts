@@ -15,6 +15,32 @@ export const IDLE_TIMEOUT_MS = 5 * 60 * 1000 // OPEN-6
 export const CONNECT_WATCHDOG_MS = 10_000 // OPEN-3
 export const FLOWING_WATCHDOG_MS = 5_000 // OPEN-3
 
+/**
+ * Spectrum frame geometry — shared because the daemon fills the frames and the
+ * client labels the rows.
+ *
+ * The visualiser is a GitHub contribution graph: seven log-spaced frequency
+ * rows (a week's worth), each cell one of five intensity levels, scrolling
+ * right as time passes. Seven rows is the whole reason the band count is fixed
+ * rather than adaptive — the grid's shape is the point.
+ */
+export const BANDS = 7
+/** 0 is an empty cell, 4 the brightest green — GitHub's five-step scale. */
+export const MAX_LEVEL = 4
+const BAND_MIN_HZ = 40
+const BAND_MAX_HZ = 16_000
+
+/** Band boundaries, low to high. `BAND_EDGES[b]`..`BAND_EDGES[b + 1]` is band b. */
+export const BAND_EDGES: number[] = Array.from({ length: BANDS + 1 }, (_, i) =>
+  BAND_MIN_HZ * Math.pow(BAND_MAX_HZ / BAND_MIN_HZ, i / BANDS),
+)
+
+/** Row labels, low to high: the geometric centre of each band, short enough for a 3-cell gutter. */
+export const BAND_LABELS: string[] = Array.from({ length: BANDS }, (_, b) => {
+  const centre = Math.sqrt(BAND_EDGES[b] * BAND_EDGES[b + 1])
+  return centre >= 1000 ? `${Math.round(centre / 1000)}k` : `${Math.round(centre)}`
+})
+
 export interface StationRef {
   id: string
   title: string
@@ -51,7 +77,7 @@ export type ClientMessage =
 
 export type DaemonMessage =
   | { t: "state"; state: DaemonState }
-  | { t: "bars"; bars: number[] }
+  | { t: "spectrum"; bands: number[] }
   | { t: "error"; message: string }
 
 export function encode(msg: unknown): string {
@@ -87,7 +113,7 @@ interface WritableSocket {
  * the receiver's JSON.parse fails, and the frame vanishes silently.
  *
  * So all writes go through here: the unwritten remainder is held and flushed on
- * `drain`. Control messages queue reliably; bar frames are droppable, because a
+ * `drain`. Control messages queue reliably; spectrum frames are droppable, because a
  * congested peer should lose visualiser frames rather than build a backlog
  * (INTENT §5).
  */

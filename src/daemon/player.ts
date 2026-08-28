@@ -2,6 +2,7 @@ import { setupAudio, type Audio, type AudioStream } from "@opentui/core"
 import type { Subprocess } from "bun"
 import { resolveStream, type Codec } from "../api/client"
 import {
+  BANDS,
   CONNECT_WATCHDOG_MS,
   FLOWING_WATCHDOG_MS,
   USER_AGENT,
@@ -13,7 +14,7 @@ import { Spectrum, WINDOW } from "./spectrum"
 export interface PlayerEvents {
   onState: (state: PlayState, message?: string) => void
   onNowPlaying: (title: string | null) => void
-  onBars: (bars: number[]) => void
+  onSpectrum: (bands: number[]) => void
   onDead: (station: StationRef, reason: string) => void
 }
 
@@ -31,7 +32,7 @@ export class Player {
   private audio: Audio | null = null
   private stream: AudioStream | null = null
   private shim: Subprocess | null = null
-  private spectrum = new Spectrum(48)
+  private spectrum = new Spectrum()
   private ticker: NodeJS.Timeout | null = null
   private watchdog: NodeJS.Timeout | null = null
   private lastAudioAt = 0
@@ -43,10 +44,6 @@ export class Player {
 
   get station(): StationRef | null {
     return this.current
-  }
-
-  setBarCount(n: number): void {
-    this.spectrum.setBarCount(n)
   }
 
   private engine(): Audio {
@@ -146,7 +143,7 @@ export class Player {
   /**
    * Reads the output tap at 30 Hz. The tap is a native ring buffer the mixer
    * fills regardless of whether anyone reads it, so a slow consumer costs stale
-   * bars, never audio (INTENT §5).
+   * spectrum frames, never audio (INTENT §5).
    */
   private startTicker(): void {
     this.stopTicker()
@@ -166,9 +163,9 @@ export class Player {
           this.lastAudioAt = now
           this.everFlowed = true
         }
-        this.ev.onBars(this.spectrum.push(frames))
+        this.ev.onSpectrum(this.spectrum.push(frames))
       } else {
-        this.ev.onBars(this.spectrum.idle(dt))
+        this.ev.onSpectrum(this.spectrum.idle(dt))
       }
     }, 33)
   }
@@ -204,7 +201,7 @@ export class Player {
     await this.teardown()
     this.current = null
     this.ev.onState("stopped")
-    this.ev.onBars(new Array(this.spectrum.bars).fill(0))
+    this.ev.onSpectrum(new Array(BANDS).fill(0))
   }
 
   private async teardown(): Promise<void> {

@@ -31,7 +31,7 @@ const state: DaemonState = {
   message: null,
 }
 
-let lastBars: number[] = []
+let lastSpectrum: number[] = []
 let idleSince = Date.now()
 /** Stations already found dead this session, so auto-skip cannot loop forever. */
 const deadThisSession = new Set<string>()
@@ -40,9 +40,9 @@ function broadcast(msg: DaemonMessage): void {
   for (const [sock, conn] of clients) {
     if (!conn.subscribed) continue
     try {
-      // Bars are droppable so a wedged client loses frames instead of building
-      // a backlog; state changes must not be lost (INTENT §5).
-      if (msg.t === "bars") conn.writer.sendDroppable(msg)
+      // Spectrum frames are droppable so a wedged client loses cells instead of
+      // building a backlog; state changes must not be lost (INTENT §5).
+      if (msg.t === "spectrum") conn.writer.sendDroppable(msg)
       else conn.writer.send(msg)
     } catch {
       clients.delete(sock)
@@ -77,9 +77,9 @@ const player = new Player({
     state.nowPlaying = title
     pushState()
   },
-  onBars(bars) {
-    lastBars = bars
-    broadcast({ t: "bars", bars })
+  onSpectrum(bands) {
+    lastSpectrum = bands
+    broadcast({ t: "spectrum", bands })
   },
   onDead(station, reason) {
     deadThisSession.add(station.id)
@@ -142,7 +142,8 @@ async function handle(msg: ClientMessage, _sock: Socket<Conn>, conn: Conn): Prom
     case "subscribe":
       conn.subscribed = true
       conn.writer.send({ t: "state", state: { ...state } } satisfies DaemonMessage)
-      if (lastBars.length) conn.writer.send({ t: "bars", bars: lastBars } satisfies DaemonMessage)
+      if (lastSpectrum.length)
+        conn.writer.send({ t: "spectrum", bands: lastSpectrum } satisfies DaemonMessage)
       break
     case "status":
       conn.writer.send({ t: "state", state: { ...state } } satisfies DaemonMessage)
