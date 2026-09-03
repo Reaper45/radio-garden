@@ -1,4 +1,4 @@
-# radio-garden
+![Radio Garden CLI](image.png)
 
 A terminal client for [radio.garden](https://radio.garden/): browse stations by
 place, play one, and watch the audio scroll past as a GitHub contribution graph.
