@@ -29,12 +29,18 @@ if (cmd === "daemon") {
 } else if (cmd === "--help" || cmd === "-h") {
   console.log(`radio-garden — terminal radio from radio.garden
 
+  ████   ███  ████  ███  ███      ███   ███  ████  ████  █████ █   █     ███  █     ███ 
+  █   █ █   █ █   █  █  █   █    █     █   █ █   █ █   █ █     ██  █    █     █      █  
+  ████  █████ █   █  █  █   █    █  ██ █████ ████  █   █ ████  █ █ █    █     █      █  
+  █  █  █   █ █   █  █  █   █    █   █ █   █ █  █  █   █ █     █  ██    █     █      █  
+  █   █ █   █ ████  ███  ███      ███  █   █ █   █ ████  █████ █   █     ███  █████ ███ 
+
   radio-garden          launch the player
   radio-garden daemon   run the daemon in the foreground
   radio-garden kill     stop the background daemon
 
 keys: ↑↓ move   ⏎ play   space stop   n next   / search   q quit
-(playback continues after q — use 'radio-garden kill' to stop it)`)
+(playback continues after q — use 'radio-garden kill' to stop it)`);
 } else {
   const { run } = await import("./client/tui")
   await run()
