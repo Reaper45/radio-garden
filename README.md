@@ -5,6 +5,10 @@ place, play one, and watch the audio scroll past as a GitHub contribution graph.
 Playback runs in a background daemon, so it survives closing the terminal — and a
 closed lid, when you're on mains power.
 
+> Inspired by [radio.garden](https://radio.garden/) and built on its API, which
+> is undocumented and unofficial. This project is not affiliated with or endorsed
+> by Radio Garden, and the API may change or disappear without notice.
+
 ![radio-garden playing KUTX FM 98.9](doc/screenshot.png)
 
 Seven log-spaced frequency rows, 40 Hz to 16 kHz, a new column every 100 ms — a
@@ -107,3 +111,12 @@ bun probe/daemon-probe.ts    # daemon end to end, spectrum frames flowing
 bun probe/audio-probe.ts     # OpenTUI native playback + ICY metadata
 bun probe/aac-shim-probe.ts  # ffmpeg AAC path
 ```
+
+## Credits
+
+The idea is [radio.garden](https://radio.garden/)'s — a globe you spin to hear
+what a place sounds like right now. This is that, minus the globe, in a terminal.
+
+Thanks to [jonasrmichel/radio-garden-openapi](https://jonasrmichel.github.io/radio-garden-openapi/)
+for documenting the API. Radio Garden publishes no official spec, so that write-up
+is what the endpoints in `src/api/client.ts` are built against.
