@@ -1,7 +1,7 @@
 import { createTestRenderer } from "@opentui/core/testing"
 import type { RGBA } from "@opentui/core"
 import { View } from "../src/client/view"
-import { COLUMN_MS, LEVEL_COLORS } from "../src/client/graph"
+import { CELL_W, COLUMN_MS, LEVEL_COLORS } from "../src/client/graph"
 import { BANDS, type DaemonState, type StationRef } from "../src/shared/protocol"
 
 const station = (id: string, title: string, preroll = false): StationRef => ({
@@ -71,6 +71,25 @@ for (const line of captureSpans().lines) {
 }
 const want = LEVEL_COLORS.map((c) => c.toLowerCase()).sort().join(" ")
 check("five contribution levels", [...painted].sort().join(" "), [want])
+
+// 3c. the strip slides a character at a time within a column, and the row width
+// must not breathe as it does — a layout that changes width mid-slide jitters
+const widths = new Set<number>()
+const offsets = new Set<string>()
+const slideFrom = t0 + 90 * COLUMN_MS
+for (let step = 0; step < CELL_W * 2; step++) {
+  view.pushSpectrum(new Array(BANDS).fill(3), slideFrom + Math.round((step * COLUMN_MS) / CELL_W))
+  view.draw(); await renderOnce()
+  const row = captureCharFrame().split("\n").find((l) => l.includes("10k"))!
+  const cellsOnly = row.slice(row.indexOf("10k") + 4, row.lastIndexOf("│"))
+  widths.add(cellsOnly.length)
+  offsets.add(cellsOnly.slice(0, CELL_W))
+}
+check("row width constant while sliding", String(widths.size), ["1"])
+if (widths.size !== 1) { failures++; console.log(`FAIL  widths seen: ${[...widths].join(", ")}`) }
+// every sub-column position must actually appear, or the slide is really a hop
+check("slides through every sub-column position", String(offsets.size), [String(CELL_W)])
+if (offsets.size !== CELL_W) { failures++; console.log(`FAIL  only ${offsets.size} of ${CELL_W} positions: ${JSON.stringify([...offsets])}`) }
 
 // 4. buffering + dead-station message
 view.setState({ ...base, play: "buffering", station: station("b", "Blitz FM 254", true),

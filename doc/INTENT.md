@@ -66,6 +66,7 @@ ICY metadata. `ffmpeg` appears only as an optional transcoding shim for AAC.
 | D15 | **All socket writes go through `FrameWriter`** | Bun's `socket.write()` returns short counts on large messages. Found in implementation — see §5. |
 | D16 | **The visualiser is a scrolling contribution grid, not bars** | Bars show one instant; the grid shows the last ten seconds, so you can see a track's structure go past. Seven log rows × five levels is GitHub's shape, and it is a spectrogram either way. Supersedes the adaptive bar count of D9. |
 | D17 | **The daemon sends instants; the client owns the scroll history** | Column width is a function of terminal width, which only the client knows, and a second client attaching should not inherit the first one's scrollback. The daemon stays stateless past the current frame. |
+| D18 | **The grid scrolls by character, not by column** | A column is three characters wide; advancing one per commit hops visibly. Sliding the strip and clipping the end squares mid-glyph runs the motion at the render tick instead. Costs half the history window — the right trade, because stepping is the thing you notice. |
 
 ### Keybindings (D4)
 
@@ -116,11 +117,23 @@ material must scatter across all five levels with no flat row.
 
 - **Cell:** two block glyphs plus a one-column gutter. A terminal cell is about
   twice as tall as it is wide, so two of them read as one GitHub square.
-- **Column:** 200 ms. Frames arrive at 30 Hz, so roughly six fold into each
+- **Column:** 100 ms. Frames arrive at 30 Hz, so about three fold into each
   column — by max, not mean, because a snare that lands inside a column should
   light it and averaging is exactly what erases it.
+- **Scroll:** sub-column. Committing columns *is* the animation only if you are
+  willing to watch the grid hop three characters ten times a second, which reads
+  as stepping. Instead the view is handed the column still filling as an extra
+  cell past the right edge, slides the whole strip left by
+  `elapsed / COLUMN_MS × CELL_W` characters and clips it back to width. The end
+  squares are cut mid-glyph, so the grid drifts at the render tick — 30 steps a
+  second, one per frame, for the same 10 columns of data.
+  The offset rounds rather than floors: frames land on 33 ms boundaries and a
+  third of a column is 33.33 ms, so flooring puts every tick just short of its
+  step and the slide comes out 0, 0, 2.
 - **Width:** adaptive, 8 to 53 columns (a year of contributions is 53 weeks), so
-  the window covers 1.6 to 10.6 s depending on the terminal.
+  the window covers 0.8 to 5.3 s depending on the terminal. Shorter than it was
+  at 200 ms columns: history length trades directly against smoothness, and
+  smoothness won.
 - **Palette:** GitHub's four greens, with the empty cell darkened to this app's
   background rather than `#0d1117`.
 - **Idle:** stopping a station empties the grid rather than freezing it. A stopped

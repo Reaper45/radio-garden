@@ -167,9 +167,12 @@ export class View {
     }))
   }
 
-  /** Cell for one level: two blocks then the gutter that keeps them reading as squares. */
-  private cell(level: number): TextChunk {
-    return chunk(LEVEL_COLORS[Math.max(0, Math.min(MAX_LEVEL, level))])(CELL + " ")
+  /** A full cell: two blocks then the gutter that keeps them reading as squares. */
+  private static readonly CELL_TEXT = CELL + " "
+
+  /** `text` is a slice of a cell — the strip's end cells are cut mid-square as it slides. */
+  private paint(level: number, text = View.CELL_TEXT): TextChunk {
+    return chunk(LEVEL_COLORS[Math.max(0, Math.min(MAX_LEVEL, level))])(text)
   }
 
   /** GitHub's bottom-right key, with the contribution count off to the left. */
@@ -179,7 +182,7 @@ export class View {
     const room = width - key - 1
     const text = summary.length <= room ? summary : ""
     const chunks: TextChunk[] = [chunk(DIM)(text + " ".repeat(Math.max(1, room - text.length + 1)) + "Less ")]
-    for (let level = 0; level <= MAX_LEVEL; level++) chunks.push(this.cell(level))
+    for (let level = 0; level <= MAX_LEVEL; level++) chunks.push(this.paint(level))
     chunks.push(chunk(DIM)("More"))
     return new StyledText(chunks)
   }
@@ -202,12 +205,24 @@ export class View {
     this.metaText.content = bits.join("   ")
 
     this.graph.setColumns(columnsFor(this.renderer.width - 6))
-    const grid = this.graph.grid()
+    const strip = this.graph.strip()
+    // Slide the strip left by a sub-column offset and clip it back to width. The
+    // leading square is cut short and the trailing one is only partly drawn, so
+    // the grid drifts a character at a time instead of hopping a whole cell.
+    const offset = this.graph.offsetChars()
+    const last = strip[0].length - 1
     for (let row = 0; row < BANDS; row++) {
       const chunks: TextChunk[] = [chunk(DIM)(this.graph.rowLabel(row))]
-      for (const level of grid[row]) chunks.push(this.cell(level))
+      for (let col = 0; col <= last; col++) {
+        const text =
+          col === 0 ? View.CELL_TEXT.slice(offset)
+          : col === last ? View.CELL_TEXT.slice(0, offset)
+          : View.CELL_TEXT
+        if (text) chunks.push(this.paint(strip[row][col], text))
+      }
       this.gridRows[row].content = new StyledText(chunks)
     }
+    // The time scale does not slide: the data flows underneath a fixed ruler.
     this.axisText.content = this.graph.timeAxis()
 
     const lit = this.graph.lit

@@ -8,8 +8,13 @@ export const CELL = "██"
 export const CELL_W = CELL.length + 1
 /** Frequency labels down the left edge — the Mon/Wed/Fri slot. */
 export const GUTTER = 4
-/** One column per 200 ms: slow enough to read as discrete squares, fast enough to feel live. */
-export const COLUMN_MS = 200
+/**
+ * One column per 100 ms — but the grid does not jump a whole column at a time.
+ * A column is CELL_W characters wide, so the strip slides one character every
+ * COLUMN_MS / CELL_W ≈ 33 ms, which is the render tick: the squares appear to
+ * drift left continuously rather than hopping three cells five times a second.
+ */
+export const COLUMN_MS = 100
 /** A year of contributions is 53 columns; the grid never grows past that. */
 export const MAX_COLUMNS = 53
 /** GitHub's five steps, with an empty cell tuned to this app's background rather than #0d1117. */
@@ -24,14 +29,21 @@ export function columnsFor(innerWidth: number): number {
 /**
  * The scrolling history behind the grid.
  *
- * Frames arrive at 30 Hz but a column is 200 ms wide, so six or so frames fold
+ * Frames arrive at 30 Hz and a column is 100 ms wide, so about three frames fold
  * into one cell. They fold by max, not mean: a snare hit that lands inside a
  * column should light it, and averaging is exactly what would erase it.
+ *
+ * The column currently filling is handed out too, as an extra cell past the
+ * right edge. The view slides the whole strip left by `offsetChars()` and clips
+ * it back to width, so that cell scrolls into view a character at a time instead
+ * of appearing all at once.
  */
 export class ContributionGraph {
   private cols: number[][] = []
   private pending: number[] = new Array(BANDS).fill(0)
   private openedAt = 0
+  /** Timestamp of the last frame, so the scroll offset reads the same clock as the history. */
+  private lastAt = 0
   private width = 24
 
   /** Columns adapt to terminal width, so the history window is retrimmed on resize. */
@@ -60,10 +72,27 @@ export class ContributionGraph {
     this.cols = []
     this.pending.fill(0)
     this.openedAt = 0
+    this.lastAt = 0
+  }
+
+  /**
+   * How far the strip has slid within the column now filling, in characters.
+   *
+   * Rounded, not floored: frames land at 33 ms and a third of a column is
+   * 33.33 ms, so flooring puts every tick just short of its step and the slide
+   * comes out 0, 0, 2 — a stall then a double jump. Capped one short of a full
+   * column, because the last character of the slide is what committing the
+   * column does.
+   */
+  offsetChars(): number {
+    if (!this.openedAt) return 0
+    const through = (this.lastAt - this.openedAt) / COLUMN_MS
+    return Math.max(0, Math.min(CELL_W - 1, Math.round(through * CELL_W)))
   }
 
   push(bands: number[], now = Date.now()): void {
     if (!this.openedAt) this.openedAt = now
+    this.lastAt = now
     for (let b = 0; b < BANDS; b++) {
       const level = Math.max(0, Math.min(MAX_LEVEL, Math.round(bands[b] ?? 0)))
       if (level > this.pending[b]) this.pending[b] = level
@@ -88,17 +117,19 @@ export class ContributionGraph {
   }
 
   /**
-   * `grid()[row][col]`, row 0 the highest band and the newest column flush
+   * `strip()[row][col]`, row 0 the highest band. Width + 1 cells: the visible
+   * history, then the column still filling, which the view slides in from the
    * right. A short history left-pads with empty cells, so the graph fills in
    * from the right rather than jumping about as it grows.
    */
-  grid(): number[][] {
+  strip(): number[][] {
     const pad = Math.max(0, this.width - this.cols.length)
     const visible = this.cols.slice(Math.max(0, this.cols.length - this.width))
     return Array.from({ length: BANDS }, (_, row) => {
       const band = BANDS - 1 - row
-      const cells = new Array(this.width).fill(0)
+      const cells = new Array(this.width + 1).fill(0)
       for (let i = 0; i < visible.length; i++) cells[pad + i] = visible[i][band]
+      cells[this.width] = this.pending[band]
       return cells
     })
   }
