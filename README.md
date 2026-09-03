@@ -9,13 +9,13 @@ closed lid, when you're on mains power.
 > is undocumented and unofficial. This project is not affiliated with or endorsed
 > by Radio Garden, and the API may change or disappear without notice.
 
-![radio-garden playing KUTX FM 98.9](doc/screenshot.png)
+![radio-garden playing HomeBoyz Radio FM 103.5, Nairobi](doc/screenshot.png)
 
 Seven log-spaced frequency rows, 40 Hz to 16 kHz, a new column every 100 ms — a
 spectrogram in GitHub's five shades of green. The squares are real FFT output,
 not decoration: a bass-heavy track fills the bottom rows, a cymbal lights the top
-one, and silence empties the grid. The capture above is a real frame, KUTX
-mid-song.
+one, and silence empties the grid. The capture above is live output, not a
+mockup — HomeBoyz Radio FM 103.5 out of Nairobi, five seconds of it.
 
 The grid does not advance a column at a time. A square is three characters wide,
 so the strip slides one character every 33 ms and the leading square is clipped
