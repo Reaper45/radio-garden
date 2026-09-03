@@ -5,36 +5,18 @@ place, play one, and watch the audio scroll past as a GitHub contribution graph.
 Playback runs in a background daemon, so it survives closing the terminal — and a
 closed lid, when you're on mains power.
 
-```
- radio.garden                                                                     ⚡︎ lid-safe
-┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ KUTX FM 98.9                                                                             │
-│ Austin TX, United States                                                                 │
-│ ♪ Khruangbin — August 10                                                                 │
-│                        -4s                       -2s                       now           │
-│ 10k ░░ ▒▒ ▓▓ ▓▓ ░░ ░░ ░░ ▓▓ ▒▒ ░░ ░░ ▒▒ ▒▒ ░░ ░░ ▒▒ ▒▒ ░░ ░░ ▓▓ ▒▒ ░░ ▓▓ ▓▓ ░░ ██ ▓▓ ▒▒  │
-│     ░░ ░░ ░░ ▒▒ ░░ ░░ ▒▒ ▓▓ ▒▒ ██ ██ ▒▒ ░░ ██ ▓▓ ▒▒ ▒▒ ▒▒ ██ ██ ▒▒ ▒▒ ▒▒ ▓▓ ██ ▓▓ ▒▒ ▒▒  │
-│     ██ ▒▒ ░░ ▒▒ ░░ ░░ ██ ██ ▓▓ ░░ ▒▒ ▓▓ ██ ▒▒ ░░ ·· ░░ ▒▒ ▓▓ ▒▒ ░░ ·· ░░ ▒▒ ▒▒ ░░ ·· ░░  │
-│ 800 ██ ▓▓ ▓▓ ██ ██ ██ ██ ▓▓ ▒▒ ▓▓ ██ ██ ██ ██ ▓▓ ▓▓ ░░ ▒▒ ▓▓ ▓▓ ▒▒ ██ ██ ▓▓ ▒▒ ▒▒ ░░ ▒▒  │
-│     ▓▓ ▒▒ ▒▒ ▓▓ ▓▓ ▓▓ ▓▓ ██ ▓▓ ██ ▓▓ ▓▓ ▓▓ ▓▓ ▒▒ ▓▓ ▒▒ ▓▓ ▓▓ ▒▒ ▒▒ ▓▓ ▓▓ ▓▓ ▒▒ ▒▒ ▓▓ ▓▓  │
-│     ▓▓ ▓▓ ▓▓ ██ ▓▓ ██ ▓▓ ▓▓ ▒▒ ▒▒ ▓▓ ▓▓ ▓▓ ██ ▓▓ ▒▒ ▒▒ ▒▒ ▓▓ ▓▓ ▓▓ ██ ▓▓ ▒▒ ▒▒ ▒▒ ▒▒ ▓▓  │
-│  61 ▒▒ ░░ ░░ ▓▓ ▒▒ ░░ ░░ ▓▓ ▒▒ ░░ ·· ▒▒ ░░ ▓▓ ▒▒ ░░ ·· ▒▒ ▒▒ ░░ ·· ▒▒ ▒▒ ░░ ░░ ▒▒ ░░ ··  │
-│ 143 blocks in the last 5 seconds                        Less ·· ░░ ▒▒ ▓▓ ██ More         │
-└──────────────────────────────────────────────────────────────────────────────────────────┘
-┌─ Austin TX, United States ───────────────────────────────────────────────────────────────┐
-│  ▶ KUTX FM 98.9                                                                          │
-│    Austin TX, United States                                                              │
-│    Boss Country Radio                                                                    │
-│    Austin TX, United States  · ad                                                        │
-└──────────────────────────────────────────────────────────────────────────────────────────┘
-↑↓ move   ⏎ play   space stop   n next   / search   q quit
-```
+![radio-garden playing KUTX FM 98.9](doc/screenshot.png)
 
-Seven log-spaced frequency rows, 40 Hz to 16 kHz, one column per 200 ms scrolling
-right to left — a spectrogram in GitHub's five shades of green, shown above as
-shading because this page has no colour. The squares are real FFT output, not
-decoration: a bass-heavy track fills the bottom rows, a cymbal lights the top
-one, and silence empties the grid.
+Seven log-spaced frequency rows, 40 Hz to 16 kHz, a new column every 100 ms — a
+spectrogram in GitHub's five shades of green. The squares are real FFT output,
+not decoration: a bass-heavy track fills the bottom rows, a cymbal lights the top
+one, and silence empties the grid. The capture above is a real frame, KUTX
+mid-song.
+
+The grid does not advance a column at a time. A square is three characters wide,
+so the strip slides one character every 33 ms and the leading square is clipped
+mid-glyph as it leaves: the motion runs at the render tick, 30 steps a second,
+rather than hopping a whole cell ten times a second.
 
 ## Requirements
 
