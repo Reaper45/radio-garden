@@ -95,6 +95,12 @@ export class Spectrum {
     for (let b = 0; b < BANDS; b++) this.weight[b] = Math.pow(centre(b) / centre(0), TILT)
   }
 
+  /** Forget the station just torn down, so the next one is not scored against its peak. */
+  reset(): void {
+    this.smoothed.fill(0)
+    this.peak = AGC_FLOOR
+  }
+
   /** Decay toward silence when the tap has nothing for us, so cells fade rather than freeze. */
   idle(dtMs: number): number[] {
     const k = Math.min(1, (RELEASE * dtMs) / 33)

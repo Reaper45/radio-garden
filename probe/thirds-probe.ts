@@ -189,5 +189,29 @@ function pink(): () => number {
   check(moving, `every band 40 Hz-16 kHz varies${moving ? "" : ` — band ${stillMoving + 3} (${THIRD_LABELS[stillMoving + 3]} Hz) is flat`}`)
 }
 
+// ---------------------------------------------------------------------------
+// 6. reset() must actually forget the station just torn down.
+//
+// `idle()` decays the smoothing and the AGC but cannot touch the ring, so
+// without a reset the next station's first five ticks are analysed against
+// 170 ms of the previous one's audio, and its first three seconds are scored
+// against the previous one's rolling peak.
+// ---------------------------------------------------------------------------
+{
+  const s = new ThirdOctave()
+  const loudBass = stream((t) => 0.9 * Math.sin(2 * Math.PI * THIRD_CENTRES[5] * t))
+  for (let i = 0; i < SETTLE; i++) s.push(loudBass())
+  s.reset()
+
+  const quietTreble = stream((t) => 0.05 * Math.sin(2 * Math.PI * THIRD_CENTRES[24] * t))
+  const first = s.push(quietTreble())
+  check(first[5] === 0, `reset drops the old station's band on the very next frame (63 Hz -> ${first[5]})`)
+
+  let bars = first
+  for (let i = 0; i < SETTLE; i++) bars = s.push(quietTreble())
+  const loudest = bars.indexOf(Math.max(...bars))
+  check(loudest === 24, `and the new station owns the display (band ${loudest}, want 24)  ${profile(bars)}`)
+}
+
 console.log(`\n${pass}/${total} checks passed`)
 process.exit(pass === total ? 0 : 1)
