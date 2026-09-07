@@ -67,6 +67,7 @@ ICY metadata. `ffmpeg` appears only as an optional transcoding shim for AAC.
 | D16 | **The visualiser is a scrolling contribution grid, not bars** | Bars show one instant; the grid shows the last ten seconds, so you can see a track's structure go past. Seven log rows × five levels is GitHub's shape, and it is a spectrogram either way. Supersedes the adaptive bar count of D9. |
 | D17 | **The daemon sends instants; the client owns the scroll history** | Column width is a function of terminal width, which only the client knows, and a second client attaching should not inherit the first one's scrollback. The daemon stays stateless past the current frame. |
 | D18 | **The grid scrolls by character, not by column** | A column is three characters wide; advancing one per commit hops visibly. Sliding the strip and clipping the end squares mid-glyph runs the motion at the render tick instead. Costs half the history window — the right trade, because stepping is the thing you notice. |
+| D19 | **A second visualiser on `s`: 31 third-octave bars** | Amends D16 rather than reversing it. D16 was right that bars show one instant and the grid shows the last minute — that is why `s` switches between them instead of one replacing the other. The grid is still what the app opens on. |
 
 ### Keybindings (D4)
 
@@ -74,6 +75,7 @@ ICY metadata. `ffmpeg` appears only as an optional transcoding shim for AAC.
 |---|---|
 | `space` | Stop — tear down the stream, return to stopped state |
 | `n` | Next station in the current place |
+| `s` | Switch visualiser — contribution grid ⇄ 1/3-octave bars (D19) |
 | `q` | Quit the client (daemon and playback survive) |
 | `/` | Search |
 
@@ -138,6 +140,64 @@ material must scatter across all five levels with no flat row.
   background rather than `#0d1117`.
 - **Idle:** stopping a station empties the grid rather than freezing it. A stopped
   player should look like a quiet year, not a paused one.
+
+### The 1/3-octave analyser (D19)
+
+A second visualiser, on `s`. The grid answers "what has this station been doing
+for the last minute"; this answers "what is it doing right now, in detail". They
+are different questions, so neither replaces the other and both are computed for
+every frame — toggling is a repaint, not a restart, and a client that has just
+pressed `s` never watches an empty display fill.
+
+- **Bands:** 31, on the ISO 266 preferred centres, 20 Hz to 20 kHz. Not a chosen
+  number: third-octave spacing across the audible range *is* 31 bands, 10 1/3
+  octaves times three. A different count would be a different bandwidth, and
+  then it is not a third-octave analyser. Edges sit a sixth of an octave either
+  side of each centre; the top one, 22.4 kHz, clears Nyquist at 48 kHz.
+- **Window:** 8192 samples, 170 ms, 5.86 Hz per bin — four times the grid's. The
+  band plan forces it. A third-octave band is 23% of its centre frequency wide,
+  so the 20 Hz band spans 4.6 Hz; at the grid's 23.4 Hz per bin the bottom seven
+  bands would all read the same one or two bins and move in lockstep, a rainbow
+  welded together at the left. At 8192 every band from 20 Hz up gets bins of its
+  own, and `probe/thirds-probe.ts` asserts it by requiring each of the 31 ISO
+  centres to light its own band and no other's. 16384 would separate nothing
+  further and would smear a snare across a third of a second.
+- **Scoring:** summed power across the band, not the loudest bin in it. The top
+  band spans 790 bins and the bottom one a single bin, so peak-bin scoring hands
+  the treble an 800:1 advantage on anything noise-like. Summation is what a
+  hardware analyser integrates, and it has a property worth more than the
+  correction it replaces: band power is bandwidth times PSD, and pink PSD falls
+  at exactly the rate third-octave bandwidth rises, so **pink noise reads flat**.
+  Broadcast music is approximately pink.
+- **No spectral tilt.** The grid needs `(centre Hz)^0.3` because peak-bin scoring
+  has no answer to a spectrum that falls with frequency. Band summation is that
+  answer, derived rather than tuned. The probe holds both ends of it: pink flat
+  within ~7 dB across 40 Hz-10 kHz, white noise rising toward the treble.
+- **Scale:** dB, 48 dB of range below the rolling peak, over fourteen half-block
+  steps — about 3.4 dB a step. The grid's five green levels did not justify a log
+  scale and use amplitude^0.5 instead; fourteen steps do, and bars are read
+  logarithmically anyway.
+- **Dynamics:** the same asymmetric smoothing and the same shared rolling-max AGC
+  as the grid, and the same absolute floor — here -90 dBFS, expressible directly
+  because band amplitudes are normalised so a full-scale sine reads 1.0.
+- **Geometry:** seven rows, the same seven the grid occupies, because the
+  now-playing box is a fixed `NOW_HEIGHT` and a mode with its own row count would
+  resize the station list under it every time you pressed `s`. Two half-block
+  glyphs per row give fourteen steps. Bars are 2 characters wide with a gutter at
+  100 columns, losing the gutter and then a character as the terminal narrows.
+- **Colour:** one fixed hue per band, red at 20 Hz through violet at 20 kHz.
+  Lightness is compensated across the sweep — lifted where the eye finds hue dark
+  (red, blue), dropped where it finds it bright (yellow, green) — because at one
+  flat lightness the rainbow reads as a loudness curve baked into the frequency
+  axis, which is the exact misreading the display exists to prevent.
+- **Peak hold:** 700 ms, then falling at 9 half-steps a second. It lives in the
+  client, not the daemon, because it is measured in half-block steps and the wire
+  format deliberately knows nothing about rows: frames carry 0..100, and the
+  client owns its own geometry.
+- **Floor ticks:** a silent band draws a dim tick on the bottom row rather than
+  nothing. Two of the 31 bands are expected to sit dark on most stations — 128
+  kbps streams are lowpassed near 16 kHz — and a gap in the rainbow reads as a
+  bug where a dim tick reads as a measurement.
 
 ## 3a. Daemon architecture (D10)
 
@@ -330,6 +390,9 @@ Everything below was executed, not assumed.
 | **UI renders correctly** | Headless `createTestRenderer` frame assertions: stopped/playing/buffering states, a 7-row contribution grid painted in all five GitHub greens, preroll `· ad` marker, power badge |
 | **Daemon outlives client** | After `q`, `status` still reported `playing`; playback continued until `radio-garden kill` |
 | **D13 AAC shim works** | WFDD3 (`audio/aac`) → `ffmpeg -f mp3 pipe:1` → `playStream({format:"mp3"})` → `state=playing`, audible in 9/12 polls |
+| **D19 bands are separable** | `probe/thirds-probe.ts`: all 31 ISO centres light their own band; 20/25/31.5 Hz resolve separately, which the grid's 2048 window cannot do |
+| **D19 needs no tilt** | Same probe: pink noise flat to 14 of 100 (~6.7 dB) across 40 Hz-10 kHz; white noise rises 53 → 86, i.e. 3 dB/octave |
+| **D19 renders** | Headless frame assertions: seven rows in both modes, panel height unchanged across the toggle, 31 distinct bar colours on screen, bars growing upward, peak markers surviving a drop |
 
 ## 9. Superseded design (kept for context)
 

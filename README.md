@@ -22,6 +22,31 @@ so the strip slides one character every 33 ms and the leading square is clipped
 mid-glyph as it leaves: the motion runs at the render tick, 30 steps a second,
 rather than hopping a whole cell ten times a second.
 
+## The other visualiser
+
+Press `s` and the grid gives way to a 1/3-octave analyser: 31 bars on the ISO 266
+preferred centres, 20 Hz to 20 kHz, each band a fixed hue running red at the
+bottom of the spectrum to violet at the top, with a peak marker over each bar
+that holds for 700 ms and then falls. The frequency ruler underneath is an octave
+ruler — three third-octave bands to the octave, so labelling every third one
+lands exactly on 20, 40, 80, 160, 315, 630, 1.25k, 2.5k, 5k, 10k, 20k.
+
+31 is not a round number someone picked. Third-octave spacing across the audible
+range *is* 31 bands, and choosing any other count would mean choosing a different
+bandwidth. The two ends of that range are honest about what the streams carry: at
+128 kbps most stations are lowpassed near 16 kHz, so the 20 kHz bar usually sits
+on its floor tick, and the 20-31.5 Hz bars only move on genuinely bass-heavy
+material. A dark bar is a true reading, not a broken one.
+
+Bands are scored by summed power across the band rather than by the loudest bin
+in it, which is what a hardware analyser integrates and what makes pink noise —
+which broadcast music approximates — draw as a flat line. It also means the
+display needs no spectral tilt: `probe/thirds-probe.ts` asserts both halves,
+pink flat and white noise rising 3 dB per octave.
+
+Both visualisers are computed for every frame whether or not you are looking at
+them, so `s` cuts straight to a live display rather than one that has to fill.
+
 ## Requirements
 
 - **Bun** (tested on 1.3.9)
@@ -45,6 +70,7 @@ bun run kill        # stop background playback
 | `⏎` | play the selected station |
 | `space` | stop |
 | `n` | next station in the current place |
+| `s` | switch visualiser — contribution grid ⇄ 1/3-octave bars |
 | `/` | search stations and places |
 | `q` | quit the client — **playback keeps going** |
 
@@ -71,7 +97,13 @@ Radio Garden API ──resolve 302──> upstream URL ──> codec?
                                        └───────────┬───────────┘
                                         OpenTUI audio engine → speakers
                                                    │
-                                          output tap → FFT → levels → clients
+                                              output tap
+                                       ┌───────────┴───────────┐
+                                  2048 window             8192 window
+                                       │                       │
+                            7 contribution levels     31 third-octave bars
+                                       └───────────┬───────────┘
+                                       both in every frame → clients
 ```
 
 Playback, buffering, reconnect and ICY metadata come from
@@ -93,10 +125,12 @@ src/
     main.ts            socket server, lifecycle, auto-skip
     player.ts          playback, codec routing, watchdogs
     spectrum.ts        FFT and per-band contribution levels
+    thirds.ts          1/3-octave band power and bar heights
     power.ts           pmset polling and the caffeinate assertion
   client/
     tui.ts             wiring: connection, keys, bootstrap
     graph.ts           scrolling column history behind the contribution grid
+    bars.ts            bar heights, peak hold, and the rainbow palette
     view.ts            pure rendering
 probe/                 runnable checks against the live API and real audio
 ```
@@ -105,7 +139,8 @@ probe/                 runnable checks against the live API and real audio
 
 ```bash
 bun probe/fft-probe.ts       # tones land in the right bands; music scatters across levels
-bun probe/view-probe.ts      # headless render assertions
+bun probe/thirds-probe.ts    # every ISO centre owns its band; pink reads flat, white rises
+bun probe/view-probe.ts      # headless render assertions, both visualisers
 bun probe/api-probe.ts       # live API: search, places, codec routing
 bun probe/daemon-probe.ts    # daemon end to end, spectrum frames flowing
 bun probe/audio-probe.ts     # OpenTUI native playback + ICY metadata
