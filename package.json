@@ -22,6 +22,8 @@
     "kill": "bun src/cli.ts kill",
     "typecheck": "tsc --noEmit",
     "probe:fft": "bun probe/fft-probe.ts",
+    "probe:thirds": "bun probe/thirds-probe.ts",
+    "probe:view": "bun probe/view-probe.ts",
     "probe:api": "bun probe/api-probe.ts",
     "probe:daemon": "bun probe/daemon-probe.ts"
   }

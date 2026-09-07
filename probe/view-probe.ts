@@ -2,7 +2,13 @@ import { createTestRenderer } from "@opentui/core/testing"
 import type { RGBA } from "@opentui/core"
 import { View } from "../src/client/view"
 import { CELL_W, COLUMN_MS, LEVEL_COLORS } from "../src/client/graph"
-import { BANDS, type DaemonState, type StationRef } from "../src/shared/protocol"
+import { BAR_ROWS } from "../src/client/bars"
+import { BANDS, MAX_BAR, THIRDS, type DaemonState, type StationRef } from "../src/shared/protocol"
+
+/** A third-octave frame at one flat height, for tests that do not care about shape. */
+const flat = (level: number) => new Array(THIRDS).fill(level)
+/** Quiet at 20 Hz, full scale at 20 kHz — a shape the bars must render leaning right. */
+const ramp = Array.from({ length: THIRDS }, (_, b) => Math.round(30 + (70 * b) / (THIRDS - 1)))
 
 const station = (id: string, title: string, preroll = false): StationRef => ({
   id, title, placeId: "p1", placeTitle: "Nairobi", country: "Kenya", preroll,
@@ -44,7 +50,7 @@ view.setState({ ...base, play: "playing", station: station("a", "Akamba FM 106.5
 const t0 = Date.now()
 for (let c = 0; c < 90; c++) {
   const levels = Array.from({ length: BANDS }, (_, b) => (b + c) % 5)
-  view.pushSpectrum(levels, t0 + c * COLUMN_MS)
+  view.pushSpectrum(levels, flat(0), t0 + c * COLUMN_MS)
 }
 view.draw(); await renderOnce()
 frame = captureCharFrame()
@@ -78,7 +84,7 @@ const widths = new Set<number>()
 const offsets = new Set<string>()
 const slideFrom = t0 + 90 * COLUMN_MS
 for (let step = 0; step < CELL_W * 2; step++) {
-  view.pushSpectrum(new Array(BANDS).fill(3), slideFrom + Math.round((step * COLUMN_MS) / CELL_W))
+  view.pushSpectrum(new Array(BANDS).fill(3), flat(0), slideFrom + Math.round((step * COLUMN_MS) / CELL_W))
   view.draw(); await renderOnce()
   const row = captureCharFrame().split("\n").find((l) => l.includes("10k"))!
   const cellsOnly = row.slice(row.indexOf("10k") + 4, row.lastIndexOf("│"))
@@ -97,6 +103,90 @@ view.setState({ ...base, play: "buffering", station: station("b", "Blitz FM 254"
 view.draw(); await renderOnce()
 frame = captureCharFrame()
 check("buffering + skip message", frame, ["buffering…", "skipped Akamba FM 106.5"])
+
+// 5. the 1/3-octave bars (D19)
+view.setState({ ...base, play: "playing", station: station("a", "Akamba FM 106.5"), power: "ac", lidSafe: true })
+const graphLines = captureCharFrame().split("\n").length
+check("toggle reports bars", view.toggleVisual(), ["bars"])
+
+// 5a. a frame that rises with frequency. It goes first because the bars carry no
+// peak history yet, so every glyph on screen is a bar and the shape is unambiguous.
+const barsAt = t0 + 200 * COLUMN_MS
+view.pushSpectrum(new Array(BANDS).fill(0), ramp, barsAt)
+view.draw(); await renderOnce()
+frame = captureCharFrame()
+console.log(frame)
+// the GitHub furniture must be gone, and the analyser's own caption and octave ruler present
+check("bar mode furniture", frame,
+  ["1/3 octave", "31 bands", "20 Hz", "1.25k", "20k", "s graph"],
+  ["Less", "More", "blocks in the last", "now"])
+// the panel must not resize when the mode changes, or the station list below it jumps
+check("panel height unchanged by the toggle", String(frame.split("\n").length), [String(graphLines)])
+// bars grow upward: a rising frame reaches the top row only on the right, while the
+// bottom row runs the full width
+const sloped = frame.split("\n").filter((l) => /[█▄]/.test(l))
+const firstBlock = (l: string) => l.search(/[█▄▀]/)
+check("bars grow from the bottom", String(firstBlock(sloped[sloped.length - 1]) < firstBlock(sloped[0])), ["true"])
+
+// 5b. full scale, so all seven rows are occupied and every band paints a block. At
+// anything less the top rows are legitimately blank and prove nothing — and
+// captureCharFrame cannot see colour, so 31 identical grey bars would pass on shape alone.
+view.pushSpectrum(new Array(BANDS).fill(0), flat(MAX_BAR), barsAt + 100)
+view.draw(); await renderOnce()
+frame = captureCharFrame()
+console.log(frame)
+const barLines = frame.split("\n").filter((l) => /[█▄]/.test(l))
+check("seven bar rows", String(barLines.length), [String(BAR_ROWS)])
+const barHues = new Set<string>()
+for (const line of captureSpans().lines) {
+  for (const span of line.spans) if (/[█▄▀]/.test(span.text)) barHues.add(hex(span.fg))
+}
+console.log(`      ${barHues.size} distinct bar colours`)
+if (barHues.size !== THIRDS) { failures++; console.log(`FAIL  ${barHues.size} bar colours, want ${THIRDS}`) }
+
+// 5c. a band that drops must leave its peak marker behind, above the bar
+view.pushSpectrum(new Array(BANDS).fill(0), flat(10), barsAt + 200)
+view.draw(); await renderOnce()
+const marks = captureSpans().lines.flatMap((l) => l.spans).filter((s) => s.text.includes("▀"))
+check("peak markers survive a drop", String(marks.length > 0), ["true"])
+
+// 5d. and `s` must put the contribution graph back exactly as it was
+check("toggle returns to the graph", view.toggleVisual(), ["graph"])
+view.draw(); await renderOnce()
+frame = captureCharFrame()
+check("graph restored", frame, ["Less", "More", "10k", "now", "s bars"], ["1/3 octave"])
+
+// 6. the panel must fit the terminal at every height.
+//
+// It used to be a hard 14 rows. Below 18 the header, panel, list and footer no
+// longer fit together and the surplus ran off the bottom of the screen — which a
+// terminal answers by scrolling, so the top of the app went into scrollback and a
+// scrollbar appeared. Rows are given up now instead, and this is the guard.
+for (const visual of ["graph", "bars"] as const) {
+  const overflows: string[] = []
+  for (let height = 4; height <= 40; height++) {
+    const t = await createTestRenderer({ width: 100, height })
+    const v = new View(t.renderer)
+    v.setVisual(visual)
+    v.setState({ ...base, play: "playing", station: station("a", "Akamba FM 106.5") })
+    v.showStations(Array.from({ length: 60 }, (_, i) => station(`s${i}`, `Station ${i}`)), "Nairobi, Kenya")
+    v.pushSpectrum(new Array(BANDS).fill(3), flat(70), Date.now())
+    v.draw()
+    await t.renderOnce()
+    const depth = deepest(t.renderer.root)
+    if (depth > height) overflows.push(`${height}→${depth}`)
+  }
+  check(`${visual} fits every height 4-40`, overflows.join(" ") || "none", ["none"])
+}
+
+/** The lowest screen row any visible renderable reaches. */
+function deepest(node: any): number {
+  let d = node.y + node.height
+  for (const child of node.getChildren?.() ?? []) {
+    if (child.visible !== false) d = Math.max(d, deepest(child))
+  }
+  return d
+}
 
 console.log(failures === 0 ? "\nall view checks passed" : `\n${failures} view check(s) failed`)
 process.exit(failures === 0 ? 0 : 1)

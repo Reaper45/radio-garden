@@ -42,8 +42,8 @@ const SILENCE = 0.05
 /** norm >= LEVEL_AT[i] lights level i + 1. */
 const LEVEL_AT = [0.08, 0.3, 0.55, 0.8]
 
-/** In-place iterative radix-2 FFT. `re`/`im` must be length 2^k. */
-function fft(re: Float32Array, im: Float32Array): void {
+/** In-place iterative radix-2 FFT. `re`/`im` must be length 2^k. Shared with the third-octave analyser. */
+export function fft(re: Float32Array, im: Float32Array): void {
   const n = re.length
   for (let i = 1, j = 0; i < n; i++) {
     let bit = n >> 1

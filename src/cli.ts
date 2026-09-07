@@ -39,7 +39,7 @@ if (cmd === "daemon") {
   radio-garden daemon   run the daemon in the foreground
   radio-garden kill     stop the background daemon
 
-keys: ↑↓ move   ⏎ play   space stop   n next   / search   q quit
+keys: ↑↓ move   ⏎ play   space stop   n next   s visualiser   / search   q quit
 (playback continues after q — use 'radio-garden kill' to stop it)`);
 } else {
   const { run } = await import("./client/tui")

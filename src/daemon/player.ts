@@ -3,6 +3,7 @@ import type { Subprocess } from "bun"
 import { resolveStream, type Codec } from "../api/client"
 import {
   BANDS,
+  THIRDS,
   CONNECT_WATCHDOG_MS,
   FLOWING_WATCHDOG_MS,
   USER_AGENT,
@@ -10,11 +11,13 @@ import {
   type StationRef,
 } from "../shared/protocol"
 import { Spectrum, WINDOW } from "./spectrum"
+import { ThirdOctave } from "./thirds"
 
 export interface PlayerEvents {
   onState: (state: PlayState, message?: string) => void
   onNowPlaying: (title: string | null) => void
-  onSpectrum: (bands: number[]) => void
+  /** One tap read, scored twice — contribution levels and third-octave bar heights (D19). */
+  onSpectrum: (bands: number[], thirds: number[]) => void
   onDead: (station: StationRef, reason: string) => void
 }
 
@@ -33,6 +36,7 @@ export class Player {
   private stream: AudioStream | null = null
   private shim: Subprocess | null = null
   private spectrum = new Spectrum()
+  private thirds = new ThirdOctave()
   private ticker: NodeJS.Timeout | null = null
   private watchdog: NodeJS.Timeout | null = null
   private lastAudioAt = 0
@@ -163,9 +167,9 @@ export class Player {
           this.lastAudioAt = now
           this.everFlowed = true
         }
-        this.ev.onSpectrum(this.spectrum.push(frames))
+        this.ev.onSpectrum(this.spectrum.push(frames), this.thirds.push(frames))
       } else {
-        this.ev.onSpectrum(this.spectrum.idle(dt))
+        this.ev.onSpectrum(this.spectrum.idle(dt), this.thirds.idle(dt))
       }
     }, 33)
   }
@@ -201,7 +205,7 @@ export class Player {
     await this.teardown()
     this.current = null
     this.ev.onState("stopped")
-    this.ev.onSpectrum(new Array(BANDS).fill(0))
+    this.ev.onSpectrum(new Array(BANDS).fill(0), new Array(THIRDS).fill(0))
   }
 
   private async teardown(): Promise<void> {
