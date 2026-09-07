@@ -41,6 +41,41 @@ export const BAND_LABELS: string[] = Array.from({ length: BANDS }, (_, b) => {
   return centre >= 1000 ? `${Math.round(centre / 1000)}k` : `${Math.round(centre)}`
 })
 
+/**
+ * The second visualiser: a 1/3-octave analyser drawn as bars (D19).
+ *
+ * 31 is not a free parameter. Third-octave spacing across the audible range
+ * *is* 31 bands — 10 1/3 octaves times three — on the ISO 266 preferred centres
+ * a hardware analyser is labelled with. Picking a different count would mean
+ * picking a different bandwidth, and then it is not a third-octave analyser.
+ *
+ * A frame here is a bar height, not a quantised level: the client draws with
+ * half-block glyphs and needs finer resolution than the grid's five steps. It
+ * is scaled 0..MAX_BAR rather than to a row count so the client's geometry
+ * never leaks into the wire format.
+ */
+export const THIRDS = 31
+/** ISO 266 preferred centre frequencies, 20 Hz to 20 kHz. */
+export const THIRD_CENTRES: number[] = [
+  20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160,
+  200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600,
+  2000, 2500, 3150, 4000, 5000, 6300, 8000, 10_000, 12_500, 16_000,
+  20_000,
+]
+/** Bar scale: 0 is silence, MAX_BAR full height. Integers keep the 30 Hz frames small. */
+export const MAX_BAR = 100
+/** A third-octave band reaches a sixth of an octave either side of its centre. */
+const SIXTH_OCTAVE = Math.pow(2, 1 / 6)
+/** `THIRD_EDGES[b]`..`THIRD_EDGES[b + 1]` is band b. The top edge, 22.4 kHz, clears Nyquist at 48 kHz. */
+export const THIRD_EDGES: number[] = [
+  ...THIRD_CENTRES.map((c) => c / SIXTH_OCTAVE),
+  THIRD_CENTRES[THIRDS - 1] * SIXTH_OCTAVE,
+]
+/** Ruler labels under the bars: "20", "315", "1.25k", "20k". */
+export const THIRD_LABELS: string[] = THIRD_CENTRES.map((c) =>
+  c >= 1000 ? `${Number((c / 1000).toFixed(2))}k` : String(c),
+)
+
 export interface StationRef {
   id: string
   title: string
@@ -77,7 +112,9 @@ export type ClientMessage =
 
 export type DaemonMessage =
   | { t: "state"; state: DaemonState }
-  | { t: "spectrum"; bands: number[] }
+  // Both visualisers travel in one frame: the daemon runs one FFT and scores it
+  // twice, so a client toggling modes never waits for the other analyser to warm up.
+  | { t: "spectrum"; bands: number[]; thirds: number[] }
   | { t: "error"; message: string }
 
 export function encode(msg: unknown): string {

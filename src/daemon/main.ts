@@ -31,7 +31,8 @@ const state: DaemonState = {
   message: null,
 }
 
-let lastSpectrum: number[] = []
+/** The most recent frame, replayed to a client the moment it subscribes so the display is never blank. */
+let lastSpectrum: { bands: number[]; thirds: number[] } | null = null
 let idleSince = Date.now()
 /** Stations already found dead this session, so auto-skip cannot loop forever. */
 const deadThisSession = new Set<string>()
@@ -77,9 +78,9 @@ const player = new Player({
     state.nowPlaying = title
     pushState()
   },
-  onSpectrum(bands) {
-    lastSpectrum = bands
-    broadcast({ t: "spectrum", bands })
+  onSpectrum(bands, thirds) {
+    lastSpectrum = { bands, thirds }
+    broadcast({ t: "spectrum", bands, thirds })
   },
   onDead(station, reason) {
     deadThisSession.add(station.id)
@@ -142,8 +143,7 @@ async function handle(msg: ClientMessage, _sock: Socket<Conn>, conn: Conn): Prom
     case "subscribe":
       conn.subscribed = true
       conn.writer.send({ t: "state", state: { ...state } } satisfies DaemonMessage)
-      if (lastSpectrum.length)
-        conn.writer.send({ t: "spectrum", bands: lastSpectrum } satisfies DaemonMessage)
+      if (lastSpectrum) conn.writer.send({ t: "spectrum", ...lastSpectrum } satisfies DaemonMessage)
       break
     case "status":
       conn.writer.send({ t: "state", state: { ...state } } satisfies DaemonMessage)
