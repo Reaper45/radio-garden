@@ -10,13 +10,15 @@ import { BANDS, MAX_BAR, THIRDS, THIRD_LABELS } from "../shared/protocol"
  */
 
 /**
- * Bars occupy the same rows the grid does. The now-playing box is a fixed
- * NOW_HEIGHT, so a mode that wanted its own row count would resize the panel
- * under the station list every time you pressed `s`.
+ * At full height bars occupy the same rows the grid does, so pressing `s` never
+ * resizes the panel under the station list. A short terminal gets fewer rows —
+ * see `View.fitPanel` — and every height here is computed from the row count it
+ * is handed rather than from a constant, so the bars simply lose resolution
+ * instead of overflowing the screen.
  */
 export const BAR_ROWS = BANDS
 /** Half-block glyphs put two steps in every row. */
-export const BAR_STEPS = BAR_ROWS * 2
+export const barSteps = (rows: number) => rows * 2
 
 export const FULL = "█"
 export const HALF = "▄"
@@ -135,25 +137,31 @@ function stridefor(layout: BarLayout): number {
   return 3 * layout.pitch >= WIDEST_LABEL + 1 ? 3 : 6
 }
 
-/** Hold before a peak marker starts to fall, and how fast it falls once it does. */
+/** Hold before a peak marker starts to fall. */
 const PEAK_HOLD_MS = 700
-const PEAK_FALL_STEPS_PER_S = 9
+/**
+ * Fall rate, in wire units a second. Measured against the frame scale rather
+ * than against rows, so a panel squeezed into three rows sees the marker fall at
+ * the same speed it does in seven.
+ */
+const PEAK_FALL_PER_S = 64
 
 /**
- * Bar heights and their falling peak markers.
+ * Bar levels and their falling peak markers.
  *
  * The daemon has already smoothed and normalised, so there is no filtering here
- * — only the peak-hold, which has to live client-side because it is measured in
- * half-block steps and the wire format deliberately knows nothing about rows.
+ * — only the peak-hold. State is kept in the frame's own 0..MAX_BAR units and
+ * converted to rows only when something asks, which is what lets the panel
+ * change height between one frame and the next without the markers jumping.
  */
 export class BarSpectrum {
-  private readonly steps = new Float64Array(THIRDS)
+  private readonly levels = new Float64Array(THIRDS)
   private readonly peaks = new Float64Array(THIRDS)
   private readonly heldUntil = new Float64Array(THIRDS)
   private lastAt = 0
 
   clear(): void {
-    this.steps.fill(0)
+    this.levels.fill(0)
     this.peaks.fill(0)
     this.heldUntil.fill(0)
     this.lastAt = 0
@@ -164,32 +172,31 @@ export class BarSpectrum {
     this.lastAt = now
     for (let b = 0; b < THIRDS; b++) {
       const level = Math.max(0, Math.min(MAX_BAR, thirds[b] ?? 0))
-      const height = (level / MAX_BAR) * BAR_STEPS
-      this.steps[b] = height
-      if (height >= this.peaks[b]) {
-        this.peaks[b] = height
+      this.levels[b] = level
+      if (level >= this.peaks[b]) {
+        this.peaks[b] = level
         this.heldUntil[b] = now + PEAK_HOLD_MS
       } else if (now >= this.heldUntil[b]) {
-        this.peaks[b] = Math.max(height, this.peaks[b] - (PEAK_FALL_STEPS_PER_S * dt) / 1000)
+        this.peaks[b] = Math.max(level, this.peaks[b] - (PEAK_FALL_PER_S * dt) / 1000)
       }
     }
   }
 
-  /** Filled half-steps for band b, 0..BAR_STEPS. */
-  height(band: number): number {
-    return Math.round(this.steps[band])
+  /** Filled half-steps for band b, 0..`barSteps(rows)`. */
+  height(band: number, rows: number): number {
+    return Math.round((this.levels[band] / MAX_BAR) * barSteps(rows))
   }
 
   /** The peak marker's half-step, or 0 when the bar is already at its own peak. */
-  peak(band: number): number {
-    const peak = Math.round(this.peaks[band])
-    return peak > this.height(band) ? peak : 0
+  peak(band: number, rows: number): number {
+    const peak = Math.round((this.peaks[band] / MAX_BAR) * barSteps(rows))
+    return peak > this.height(band, rows) ? peak : 0
   }
 
   /** Bands showing signal — the analyser's answer to the grid's block count. */
   get lit(): number {
     let n = 0
-    for (let b = 0; b < THIRDS; b++) if (this.height(b) > 0) n++
+    for (let b = 0; b < THIRDS; b++) if (this.levels[b] > 0) n++
     return n
   }
 
@@ -200,11 +207,11 @@ export class BarSpectrum {
    * in the same cell as the bar's own half block: the marker takes the upper
    * half of the cell and the bar shows through the lower half.
    */
-  cell(band: number, fromBottom: number): { glyph: string; fg: string; over?: string } {
-    const filled = Math.max(0, Math.min(2, this.height(band) - fromBottom * 2))
+  cell(band: number, fromBottom: number, rows: number): { glyph: string; fg: string; over?: string } {
+    const filled = Math.max(0, Math.min(2, this.height(band, rows) - fromBottom * 2))
     if (filled === 2) return { glyph: FULL, fg: BAR_COLORS[band] }
 
-    const peak = this.peak(band)
+    const peak = this.peak(band, rows)
     if (peak > 0 && Math.floor((peak - 1) / 2) === fromBottom) {
       const upper = (peak - 1) % 2 === 1
       if (filled === 0) return { glyph: upper ? CAP_UPPER : CAP_LOWER, fg: BAR_PEAK_COLORS[band] }

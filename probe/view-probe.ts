@@ -156,5 +156,37 @@ view.draw(); await renderOnce()
 frame = captureCharFrame()
 check("graph restored", frame, ["Less", "More", "10k", "now", "s bars"], ["1/3 octave"])
 
+// 6. the panel must fit the terminal at every height.
+//
+// It used to be a hard 14 rows. Below 18 the header, panel, list and footer no
+// longer fit together and the surplus ran off the bottom of the screen — which a
+// terminal answers by scrolling, so the top of the app went into scrollback and a
+// scrollbar appeared. Rows are given up now instead, and this is the guard.
+for (const visual of ["graph", "bars"] as const) {
+  const overflows: string[] = []
+  for (let height = 4; height <= 40; height++) {
+    const t = await createTestRenderer({ width: 100, height })
+    const v = new View(t.renderer)
+    v.setVisual(visual)
+    v.setState({ ...base, play: "playing", station: station("a", "Akamba FM 106.5") })
+    v.showStations(Array.from({ length: 60 }, (_, i) => station(`s${i}`, `Station ${i}`)), "Nairobi, Kenya")
+    v.pushSpectrum(new Array(BANDS).fill(3), flat(70), Date.now())
+    v.draw()
+    await t.renderOnce()
+    const depth = deepest(t.renderer.root)
+    if (depth > height) overflows.push(`${height}→${depth}`)
+  }
+  check(`${visual} fits every height 4-40`, overflows.join(" ") || "none", ["none"])
+}
+
+/** The lowest screen row any visible renderable reaches. */
+function deepest(node: any): number {
+  let d = node.y + node.height
+  for (const child of node.getChildren?.() ?? []) {
+    if (child.visible !== false) d = Math.max(d, deepest(child))
+  }
+  return d
+}
+
 console.log(failures === 0 ? "\nall view checks passed" : `\n${failures} view check(s) failed`)
 process.exit(failures === 0 ? 0 : 1)

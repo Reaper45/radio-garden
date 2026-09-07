@@ -68,6 +68,7 @@ ICY metadata. `ffmpeg` appears only as an optional transcoding shim for AAC.
 | D17 | **The daemon sends instants; the client owns the scroll history** | Column width is a function of terminal width, which only the client knows, and a second client attaching should not inherit the first one's scrollback. The daemon stays stateless past the current frame. |
 | D18 | **The grid scrolls by character, not by column** | A column is three characters wide; advancing one per commit hops visibly. Sliding the strip and clipping the end squares mid-glyph runs the motion at the render tick instead. Costs half the history window — the right trade, because stepping is the thing you notice. |
 | D19 | **A second visualiser on `s`: 31 third-octave bars** | Amends D16 rather than reversing it. D16 was right that bars show one instant and the grid shows the last minute — that is why `s` switches between them instead of one replacing the other. The grid is still what the app opens on. |
+| D20 | **The now-playing panel sheds rows rather than overflowing** | An explicit `NOW_HEIGHT` does not shrink, so on a terminal under 18 rows the layout ran off the bottom and the terminal scrolled — blank space above the app and a scrollbar. Rows go first, then the rulers, then the panel. |
 
 ### Keybindings (D4)
 
@@ -180,11 +181,13 @@ pressed `s` never watches an empty display fill.
 - **Dynamics:** the same asymmetric smoothing and the same shared rolling-max AGC
   as the grid, and the same absolute floor — here -90 dBFS, expressible directly
   because band amplitudes are normalised so a full-scale sine reads 1.0.
-- **Geometry:** seven rows, the same seven the grid occupies, because the
-  now-playing box is a fixed `NOW_HEIGHT` and a mode with its own row count would
-  resize the station list under it every time you pressed `s`. Two half-block
-  glyphs per row give fourteen steps. Bars are 2 characters wide with a gutter at
-  100 columns, losing the gutter and then a character as the terminal narrows.
+- **Geometry:** seven rows at full height, the same seven the grid occupies, so
+  pressing `s` never resizes the station list underneath. Two half-block glyphs
+  per row give fourteen steps. Bars are 2 characters wide with a gutter at 100
+  columns, losing the gutter and then a character as the terminal narrows. Bar
+  state is held in the frame's own 0..100 units and converted to rows only at
+  paint time, which is what lets the panel change height between frames without
+  the peak markers jumping.
 - **Colour:** one fixed hue per band, red at 20 Hz through violet at 20 kHz.
   Lightness is compensated across the sweep — lifted where the eye finds hue dark
   (red, blue), dropped where it finds it bright (yellow, green) — because at one
@@ -198,6 +201,21 @@ pressed `s` never watches an empty display fill.
   nothing. Two of the 31 bands are expected to sit dark on most stations — 128
   kbps streams are lowpassed near 16 kHz — and a gap in the rainbow reads as a
   bug where a dim tick reads as a measurement.
+
+### The panel gives up rows before it overflows (D20)
+
+The now-playing box was a hard `NOW_HEIGHT` of 14 rows. Below an 18-row terminal
+that does not fit alongside the header, the station list and the footer, and yoga
+does not shrink a box with an explicit height — so the surplus was laid out past
+the bottom of the screen. A terminal answers that by scrolling: the top of the app
+goes into scrollback and a scrollbar appears, which is how the bug was reported.
+
+`View.fitPanel()` now sizes the panel from the terminal height every frame and
+sheds in order: visualiser rows first, dropped from the top so the grid keeps its
+bass rows and its row labels stay attached to the bands they name; then the two
+ruler lines, because the bars are worth more than the scales beside them; then
+the panel itself. `probe/view-probe.ts` asserts no renderable reaches past the
+last screen row at any height from 4 to 40, in both visualisers.
 
 ## 3a. Daemon architecture (D10)
 
@@ -393,6 +411,7 @@ Everything below was executed, not assumed.
 | **D19 bands are separable** | `probe/thirds-probe.ts`: all 31 ISO centres light their own band; 20/25/31.5 Hz resolve separately, which the grid's 2048 window cannot do |
 | **D19 needs no tilt** | Same probe: pink noise flat to 14 of 100 (~6.7 dB) across 40 Hz-10 kHz; white noise rises 53 → 86, i.e. 3 dB/octave |
 | **D19 renders** | Headless frame assertions: seven rows in both modes, panel height unchanged across the toggle, 31 distinct bar colours on screen, bars growing upward, peak markers surviving a drop |
+| **D20 no overflow** | Same probe: with 60 stations listed and both visualisers, no visible renderable reaches past the last screen row at any terminal height from 4 to 40. Before the fix, height 16 laid the footer out at row 17 |
 
 ## 9. Superseded design (kept for context)
 

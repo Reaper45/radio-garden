@@ -20,8 +20,13 @@ const WARN = "#fbbf24"
 const FG = "#e2e8f0"
 export const BG = "#0b1020"
 
-/** border (2) + station + place + meta + time axis + one row per band + legend. */
-const NOW_HEIGHT = 2 + 3 + 1 + BANDS + 1
+/** Everything in the now-playing box that is not the visualiser: border (2) + station + place + meta, then the axis and legend lines. */
+const NOW_CHROME = 2 + 3
+const NOW_RULERS = 2
+/** Its full height: the chrome, both rulers, and one row per band. */
+const NOW_HEIGHT = NOW_CHROME + NOW_RULERS + BANDS
+/** The station list cannot usefully be shorter than its own border. */
+const LIST_MIN = 2
 
 export type Mode = "browse" | "search"
 /** Which visualiser the now-playing panel is drawing. `s` toggles it (D19). */
@@ -45,6 +50,7 @@ export class View {
   private readonly powerText: TextRenderable
   private readonly footer: TextRenderable
   private readonly listBox: BoxRenderable
+  private readonly nowBox: BoxRenderable
 
   private readonly graph = new ContributionGraph()
   private readonly bars = new BarSpectrum()
@@ -77,14 +83,14 @@ export class View {
     header.add(this.powerText)
     root.add(header)
 
-    const nowBox = new BoxRenderable(renderer, {
+    const nowBox = (this.nowBox = new BoxRenderable(renderer, {
       id: "now",
       flexDirection: "column",
       border: true,
       borderColor: DIM,
       paddingX: 1,
       height: NOW_HEIGHT,
-    })
+    }))
     this.stationText = new TextRenderable(renderer, { id: "station", content: "nothing playing", fg: FG })
     this.placeText = new TextRenderable(renderer, { id: "place", content: "", fg: DIM })
     this.metaText = new TextRenderable(renderer, { id: "meta", content: "", fg: WARN })
@@ -232,8 +238,21 @@ export class View {
     if (s?.message) bits.push(s.message)
     this.metaText.content = bits.join("   ")
 
-    if (this.visual === "bars") this.drawBars()
-    else this.drawGraph()
+    // The panel is sized before it is painted: a terminal too short for the full
+    // seven rows must lose rows, not push the footer past the bottom of the screen.
+    const { rows, rulers, show } = this.fitPanel()
+    this.nowBox.visible = show
+    this.nowBox.height = NOW_CHROME + (rulers ? NOW_RULERS : 0) + rows
+    this.axisText.visible = rulers
+    this.legendText.visible = rulers
+    // Rows are dropped from the top, so the grid keeps its bass rows and its row
+    // labels stay attached to the bands they name.
+    const firstRow = BANDS - rows
+    for (let row = 0; row < BANDS; row++) this.gridRows[row].visible = row >= firstRow
+    if (show && rows > 0) {
+      if (this.visual === "bars") this.drawBars(rows, firstRow)
+      else this.drawGraph(rows, firstRow)
+    }
 
     if (s) {
       this.powerText.content = s.lidSafe ? "⚡︎ lid-safe" : s.power === "ac" ? "⚡︎ AC" : "🔋 will sleep"
@@ -249,8 +268,29 @@ export class View {
     this.renderer.requestRender()
   }
 
+  /**
+   * How much of the now-playing panel this terminal can afford.
+   *
+   * The box used to be a hard NOW_HEIGHT. Below 18 rows that does not fit
+   * alongside the header, the station list and the footer, and the overflow runs
+   * off the bottom of the screen — which a terminal answers by scrolling, so the
+   * top of the app disappears into scrollback and a scrollbar appears. Rows are
+   * given up instead, then the rulers, then the panel itself.
+   */
+  private fitPanel(): { rows: number; rulers: boolean; show: boolean } {
+    const spare = this.renderer.height - 1 /* header */ - 1 /* footer */ - LIST_MIN
+    if (spare >= NOW_CHROME + NOW_RULERS + 1) {
+      return { rows: Math.min(BANDS, spare - NOW_CHROME - NOW_RULERS), rulers: true, show: true }
+    }
+    // Tighter than that, the bars are worth more than the scales beside them.
+    if (spare >= NOW_CHROME) {
+      return { rows: Math.min(BANDS, spare - NOW_CHROME), rulers: false, show: true }
+    }
+    return { rows: 0, rulers: false, show: false }
+  }
+
   /** The contribution graph: a spectrogram of the last minute, sliding left. */
-  private drawGraph(): void {
+  private drawGraph(rows: number, firstRow: number): void {
     this.graph.setColumns(columnsFor(this.renderer.width - 6))
     const strip = this.graph.strip()
     // Slide the strip left by a sub-column offset and clip it back to width. The
@@ -258,7 +298,7 @@ export class View {
     // the grid drifts a character at a time instead of hopping a whole cell.
     const offset = this.graph.offsetChars()
     const last = strip[0].length - 1
-    for (let row = 0; row < BANDS; row++) {
+    for (let row = firstRow; row < BANDS; row++) {
       const chunks: TextChunk[] = [chunk(DIM)(this.graph.rowLabel(row))]
       for (let col = 0; col <= last; col++) {
         const text =
@@ -283,11 +323,11 @@ export class View {
    * row give fourteen steps of height, and a falling marker holds each band's
    * recent peak.
    */
-  private drawBars(): void {
+  private drawBars(rows: number, firstRow: number): void {
     const layout = barLayout(this.renderer.width - 6)
     const lead = " ".repeat(layout.pad)
     const gutter = " ".repeat(layout.gap)
-    for (let row = 0; row < BAR_ROWS; row++) {
+    for (let row = firstRow; row < BAR_ROWS; row++) {
       // Bars grow upward, so the bottom row is the one drawn last.
       const fromBottom = BAR_ROWS - 1 - row
       const chunks: TextChunk[] = []
@@ -295,7 +335,7 @@ export class View {
       for (let band = 0; band < THIRDS; band++) {
         // a narrow terminal drops the gutter entirely rather than shrinking the bars
         if (band && gutter) chunks.push(chunk(DIM)(gutter))
-        const cell = this.bars.cell(band, fromBottom)
+        const cell = this.bars.cell(band, fromBottom, rows)
         const text = cell.glyph.repeat(layout.bar)
         // `over` marks the one cell where the peak marker and the bar's own half
         // block collide: the marker takes the top half, the bar shows underneath.
