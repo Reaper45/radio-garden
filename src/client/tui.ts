@@ -21,7 +21,7 @@ export async function run(): Promise<void> {
           view.showStations(msg.state.siblings, msg.state.station?.placeTitle ?? "stations")
         }
       } else if (msg.t === "spectrum") {
-        view.pushSpectrum(msg.bands)
+        view.pushSpectrum(msg.bands, msg.thirds)
       } else if (msg.t === "error") {
         view.setStatus(msg.message)
       }
@@ -92,6 +92,10 @@ export async function run(): Promise<void> {
         break
       case "n":
         send(link, { t: "next" })
+        break
+      case "s":
+        // Both visualisers are fed every frame, so this is a repaint, not a restart (D19).
+        view.toggleVisual()
         break
       case "/":
         setMode("search")

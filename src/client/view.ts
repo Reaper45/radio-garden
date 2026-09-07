@@ -4,13 +4,15 @@ import {
   SelectRenderable,
   StyledText,
   TextRenderable,
+  bg as chunkBg,
   fg as chunk,
   type CliRenderer,
   type SelectOption,
   type TextChunk,
 } from "@opentui/core"
-import { BANDS, MAX_LEVEL, type DaemonState, type StationRef } from "../shared/protocol"
+import { BANDS, MAX_LEVEL, THIRDS, type DaemonState, type StationRef } from "../shared/protocol"
 import { CELL, CELL_W, ContributionGraph, GUTTER, LEVEL_COLORS, columnsFor } from "./graph"
+import { BAR_COLORS, BAR_ROWS, BarSpectrum, barLayout, rulerMarks, type BarLayout } from "./bars"
 
 const ACCENT = "#7dd3fc"
 const DIM = "#64748b"
@@ -22,6 +24,8 @@ export const BG = "#0b1020"
 const NOW_HEIGHT = 2 + 3 + 1 + BANDS + 1
 
 export type Mode = "browse" | "search"
+/** Which visualiser the now-playing panel is drawing. `s` toggles it (D19). */
+export type Visual = "graph" | "bars"
 
 /**
  * Pure view. Holds no socket and makes no decisions — the wiring in tui.ts
@@ -43,6 +47,8 @@ export class View {
   private readonly listBox: BoxRenderable
 
   private readonly graph = new ContributionGraph()
+  private readonly bars = new BarSpectrum()
+  private visual: Visual = "graph"
   private state: DaemonState | null = null
   private listing: StationRef[] = []
   private listTitle = "loading…"
@@ -134,13 +140,35 @@ export class View {
   setState(state: DaemonState): void {
     // An idle station gets an empty grid, the way a quiet year does — not a
     // frozen snapshot of whatever was playing when it stopped.
-    if (state.play !== "playing" && this.state?.play === "playing") this.graph.clear()
+    if (state.play !== "playing" && this.state?.play === "playing") {
+      this.graph.clear()
+      this.bars.clear()
+    }
     this.state = state
   }
 
-  /** One spectrum frame. The graph folds frames into 200 ms columns itself. */
-  pushSpectrum(bands: number[], now?: number): void {
+  /**
+   * One spectrum frame, feeding both visualisers.
+   *
+   * Both are kept current whichever is on screen, so `s` cuts straight to a live
+   * display instead of a blank one that has to fill or settle.
+   */
+  pushSpectrum(bands: number[], thirds: number[], now?: number): void {
     this.graph.push(bands, now)
+    this.bars.push(thirds, now)
+  }
+
+  get visualiser(): Visual {
+    return this.visual
+  }
+
+  setVisual(visual: Visual): void {
+    this.visual = visual
+  }
+
+  toggleVisual(): Visual {
+    this.visual = this.visual === "graph" ? "bars" : "graph"
+    return this.visual
   }
 
   setStatus(status: string): void {
@@ -204,6 +232,25 @@ export class View {
     if (s?.message) bits.push(s.message)
     this.metaText.content = bits.join("   ")
 
+    if (this.visual === "bars") this.drawBars()
+    else this.drawGraph()
+
+    if (s) {
+      this.powerText.content = s.lidSafe ? "⚡︎ lid-safe" : s.power === "ac" ? "⚡︎ AC" : "🔋 will sleep"
+      this.powerText.fg = s.lidSafe ? ACCENT : WARN
+    }
+
+    this.listBox.title = ` ${this.listTitle} `
+    this.footer.content =
+      this.mode === "search"
+        ? "⏎ search   esc cancel"
+        : `↑↓ move   ⏎ play   space stop   n next   s ${this.visual === "graph" ? "bars" : "graph"}   / search   q quit${this.status ? `   ${this.status}` : ""}`
+
+    this.renderer.requestRender()
+  }
+
+  /** The contribution graph: a spectrogram of the last minute, sliding left. */
+  private drawGraph(): void {
     this.graph.setColumns(columnsFor(this.renderer.width - 6))
     const strip = this.graph.strip()
     // Slide the strip left by a sub-column offset and clip it back to width. The
@@ -228,18 +275,63 @@ export class View {
     const lit = this.graph.lit
     const summary = `${lit.toLocaleString()} ${lit === 1 ? "block" : "blocks"} in the last ${this.graph.spanSeconds} seconds`
     this.legendText.content = this.legend(summary)
+  }
 
-    if (s) {
-      this.powerText.content = s.lidSafe ? "⚡︎ lid-safe" : s.power === "ac" ? "⚡︎ AC" : "🔋 will sleep"
-      this.powerText.fg = s.lidSafe ? ACCENT : WARN
+  /**
+   * The 1/3-octave analyser (D19): 31 ISO bands as bars, red at 20 Hz to violet
+   * at 20 kHz, in the same seven rows the grid uses. Two half-block glyphs per
+   * row give fourteen steps of height, and a falling marker holds each band's
+   * recent peak.
+   */
+  private drawBars(): void {
+    const layout = barLayout(this.renderer.width - 6)
+    const lead = " ".repeat(layout.pad)
+    const gutter = " ".repeat(layout.gap)
+    for (let row = 0; row < BAR_ROWS; row++) {
+      // Bars grow upward, so the bottom row is the one drawn last.
+      const fromBottom = BAR_ROWS - 1 - row
+      const chunks: TextChunk[] = []
+      if (lead) chunks.push(chunk(DIM)(lead))
+      for (let band = 0; band < THIRDS; band++) {
+        // a narrow terminal drops the gutter entirely rather than shrinking the bars
+        if (band && gutter) chunks.push(chunk(DIM)(gutter))
+        const cell = this.bars.cell(band, fromBottom)
+        const text = cell.glyph.repeat(layout.bar)
+        // `over` marks the one cell where the peak marker and the bar's own half
+        // block collide: the marker takes the top half, the bar shows underneath.
+        chunks.push(cell.over ? chunkBg(cell.over)(chunk(cell.fg)(text)) : chunk(cell.fg)(text))
+      }
+      this.gridRows[row].content = new StyledText(chunks)
     }
+    this.axisText.content = this.caption(this.renderer.width - 6)
+    this.legendText.content = this.ruler(layout)
+  }
 
-    this.listBox.title = ` ${this.listTitle} `
-    this.footer.content =
-      this.mode === "search"
-        ? "⏎ search   esc cancel"
-        : `↑↓ move   ⏎ play   space stop   n next   / search   q quit${this.status ? `   ${this.status}` : ""}`
+  /**
+   * The line above the bars. It drops detail rather than wrapping: the box is a
+   * fixed NOW_HEIGHT, so a caption that runs to two lines pushes a row of bars
+   * out of the panel.
+   */
+  private caption(width: number): string {
+    const lit = this.bars.lit
+    const options = [
+      `1/3 octave · ${THIRDS} bands · 20 Hz – 20 kHz · ${lit} above the floor`,
+      `1/3 octave · ${THIRDS} bands · 20 Hz – 20 kHz`,
+      `1/3 octave · ${THIRDS} bands`,
+      "1/3 octave",
+    ]
+    return options.find((o) => o.length <= width) ?? ""
+  }
 
-    this.renderer.requestRender()
+  /** Octave marks under the bars, each painted in its own band's hue so the ruler doubles as the colour key. */
+  private ruler(layout: BarLayout): StyledText {
+    const chunks: TextChunk[] = []
+    let at = 0
+    for (const mark of rulerMarks(layout)) {
+      if (mark.at > at) chunks.push(chunk(DIM)(" ".repeat(mark.at - at)))
+      chunks.push(chunk(BAR_COLORS[mark.band])(mark.text))
+      at = mark.at + mark.text.length
+    }
+    return new StyledText(chunks)
   }
 }
