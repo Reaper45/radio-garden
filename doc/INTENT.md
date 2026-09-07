@@ -197,6 +197,14 @@ pressed `s` never watches an empty display fill.
   client, not the daemon, because it is measured in half-block steps and the wire
   format deliberately knows nothing about rows: frames carry 0..100, and the
   client owns its own geometry.
+- **Station changes reset it.** `idle()` decays the smoothing and the AGC but
+  cannot touch the 8192-sample ring, so without an explicit reset a new station's
+  first five ticks are analysed against 170 ms of the previous one's audio, and
+  its first three seconds are scored against the previous one's rolling peak.
+  Measured: a loud 63 Hz station followed by a quiet 5 kHz one put the 63 Hz band
+  at full scale on the new station's very first frame. Both analysers are reset
+  in `Player.teardown()`, so the daemon starts each station from silence the way
+  the client already blanks its display.
 - **Floor ticks:** a silent band draws a dim tick on the bottom row rather than
   nothing. Two of the 31 bands are expected to sit dark on most stations — 128
   kbps streams are lowpassed near 16 kHz — and a gap in the rainbow reads as a
@@ -412,6 +420,7 @@ Everything below was executed, not assumed.
 | **D19 needs no tilt** | Same probe: pink noise flat to 14 of 100 (~6.7 dB) across 40 Hz-10 kHz; white noise rises 53 → 86, i.e. 3 dB/octave |
 | **D19 renders** | Headless frame assertions: seven rows in both modes, panel height unchanged across the toggle, 31 distinct bar colours on screen, bars growing upward, peak markers surviving a drop |
 | **D20 no overflow** | Same probe: with 60 stations listed and both visualisers, no visible renderable reaches past the last screen row at any terminal height from 4 to 40. Before the fix, height 16 laid the footer out at row 17 |
+| **Analysers isolate stations** | `probe/thirds-probe.ts`: with `reset()` neutered, a loud 63 Hz station leaves that band at 100 of 100 on the next station's first frame; with it, 0 |
 
 ## 9. Superseded design (kept for context)
 
