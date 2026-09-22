@@ -7,6 +7,28 @@ const CHUNK = 1600
 /** Enough chunks to fill the 8192-sample window several times and settle the AGC. */
 const SETTLE = 40
 
+/**
+ * Seeded noise.
+ *
+ * The probe asserts that every band moves, and with `Math.random` that verdict
+ * changes from run to run: a draw that happens not to excite one upper band
+ * fails an analyser that is working correctly. Same stream every time, so a
+ * failure here means the analyser changed, not the dice.
+ */
+function seeded(seed = 0x9e3779b9): () => number {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+/** One stream shared by every generator below, so the whole probe is reproducible end to end. */
+const rand = seeded()
+/** Bipolar noise, -1..1. */
+const noise = () => rand() * 2 - 1
+
 /** Continuous-phase generator, so successive chunks join without a click. */
 function stream(sample: (t: number) => number): () => Float32Array {
   let n = 0
@@ -81,7 +103,7 @@ function pink(): () => number {
   let b1 = 0
   let b2 = 0
   return () => {
-    const w = Math.random() * 2 - 1
+    const w = noise()
     b0 = 0.99765 * b0 + w * 0.0990460
     b1 = 0.96300 * b1 + w * 0.2965164
     b2 = 0.57000 * b2 + w * 1.0526913
@@ -105,7 +127,7 @@ function pink(): () => number {
 //    together they show the display is integrating bands, not normalising them.
 // ---------------------------------------------------------------------------
 {
-  const bars = settle(stream(() => Math.random() * 2 - 1))
+  const bars = settle(stream(() => noise()))
   const low = bars.slice(3, 10).reduce((a, b) => a + b, 0) / 7
   const high = bars.slice(20, 27).reduce((a, b) => a + b, 0) / 7
   console.log(`white noise ${profile(bars)}`)
@@ -125,7 +147,7 @@ function pink(): () => number {
   check(bars.every((v) => v === 0), `idle decay -> empty  ${profile(bars)}`)
 }
 {
-  const bars = settle(stream(() => (Math.random() * 2 - 1) * 1e-6))
+  const bars = settle(stream(() => noise() * 1e-6))
   check(bars.every((v) => v === 0), `-120 dBFS dither -> empty  ${profile(bars)}`)
 }
 
@@ -142,13 +164,13 @@ function pink(): () => number {
     const n = Math.floor(beat) % scale.length
     const onKick = Math.floor(beat) % 2 === 0
     const kick = onKick ? Math.exp(-inBeat * 16) * Math.sin(2 * Math.PI * 55 * sec) : 0
-    const snare = onKick ? 0 : 0.5 * Math.exp(-inBeat * 14) * (Math.random() * 2 - 1)
+    const snare = onKick ? 0 : 0.5 * Math.exp(-inBeat * 14) * noise()
     const bass = 0.5 * Math.exp(-inBeat * 2.5) * Math.sin(Math.PI * scale[n] * sec)
     const chord =
       0.2 * Math.exp(-inBeat * 1.5) *
       (Math.sin(2 * Math.PI * scale[n] * sec) + Math.sin(4 * Math.PI * scale[(n + 2) % scale.length] * sec))
     const lead = 0.18 * Math.sin(2 * Math.PI * (900 + 500 * Math.sin(sec * 1.7)) * sec) * (0.5 + 0.5 * Math.sin(sec * 3))
-    const hat = inBeat > 0.5 ? 0.1 * Math.exp(-(inBeat - 0.5) * 45) * (Math.random() * 2 - 1) : 0
+    const hat = inBeat > 0.5 ? 0.1 * Math.exp(-(inBeat - 0.5) * 45) * noise() : 0
     return (Math.floor(beat / 4) % 4 === 3 ? 0.35 : 0.8) * (kick + snare + bass + chord + lead + hat)
   })
   const s = new ThirdOctave()
@@ -165,6 +187,30 @@ function pink(): () => number {
   const moving = seen.slice(3, 30).every((s) => s.size >= 3)
   const stillMoving = seen.slice(3, 30).findIndex((s) => s.size < 3)
   check(moving, `every band 40 Hz-16 kHz varies${moving ? "" : ` — band ${stillMoving + 3} (${THIRD_LABELS[stillMoving + 3]} Hz) is flat`}`)
+}
+
+// ---------------------------------------------------------------------------
+// 6. reset() must actually forget the station just torn down.
+//
+// `idle()` decays the smoothing and the AGC but cannot touch the ring, so
+// without a reset the next station's first five ticks are analysed against
+// 170 ms of the previous one's audio, and its first three seconds are scored
+// against the previous one's rolling peak.
+// ---------------------------------------------------------------------------
+{
+  const s = new ThirdOctave()
+  const loudBass = stream((t) => 0.9 * Math.sin(2 * Math.PI * THIRD_CENTRES[5] * t))
+  for (let i = 0; i < SETTLE; i++) s.push(loudBass())
+  s.reset()
+
+  const quietTreble = stream((t) => 0.05 * Math.sin(2 * Math.PI * THIRD_CENTRES[24] * t))
+  const first = s.push(quietTreble())
+  check(first[5] === 0, `reset drops the old station's band on the very next frame (63 Hz -> ${first[5]})`)
+
+  let bars = first
+  for (let i = 0; i < SETTLE; i++) bars = s.push(quietTreble())
+  const loudest = bars.indexOf(Math.max(...bars))
+  check(loudest === 24, `and the new station owns the display (band ${loudest}, want 24)  ${profile(bars)}`)
 }
 
 console.log(`\n${pass}/${total} checks passed`)

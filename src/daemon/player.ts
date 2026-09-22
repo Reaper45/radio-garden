@@ -211,6 +211,10 @@ export class Player {
   private async teardown(): Promise<void> {
     this.stopTicker()
     this.stopWatchdog()
+    // Both analysers start the next station from silence rather than from the
+    // tail of this one — see ThirdOctave.reset().
+    this.spectrum.reset()
+    this.thirds.reset()
     if (this.stream) {
       try {
         this.stream.dispose()

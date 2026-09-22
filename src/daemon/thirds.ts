@@ -80,6 +80,23 @@ export class ThirdOctave {
     }
   }
 
+  /**
+   * Forget everything about the station just torn down.
+   *
+   * `idle()` decays the smoothing and the AGC but cannot touch the ring, so
+   * without this a new station's first five ticks are analysed against 170 ms of
+   * the previous one's audio — and its first three seconds are scored against
+   * the previous one's rolling peak, which reads as a quiet station after a loud
+   * one. The client already blanks its display on the state change; this is the
+   * daemon keeping its side of that bargain.
+   */
+  reset(): void {
+    this.ring.fill(0)
+    this.head = 0
+    this.smoothed.fill(0)
+    this.peak = AGC_FLOOR
+  }
+
   /** Decay toward silence when the tap has nothing, so bars fall rather than freeze. */
   idle(dtMs: number): number[] {
     const k = Math.min(1, (RELEASE * dtMs) / 33)
